@@ -18,6 +18,7 @@ import {
   ArrowCircleDownIcon,
   DownloadIcon,
   LightningBoltIcon,
+  ShieldExclamationIcon,
 } from "@heroicons/react/solid";
 import { format } from "date-fns";
 
@@ -370,37 +371,53 @@ function FlowOverview({ flow }: { flow: FullFlow }) {
   return (
     <div>
       {flow.signatures?.length > 0 ? (
-        <div className="bg-blue-200 p-2">
-          <div className="font-extrabold">Suricata</div>
-          <div className="pl-2">
-            {flow.signatures.map((sig) => {
-              return (
-                <div className="py-1">
-                  <div className="flex">
-                    <div>Message:&nbsp;</div>
-                    <div className="font-bold">{sig.message}</div>
-                  </div>
-                  <div className="flex">
-                    <div>Rule ID:&nbsp;</div>
-                    <div className="font-bold">{sig.id}</div>
-                  </div>
-                  <div className="flex">
-                    <div>Action taken:&nbsp;</div>
-                    <div
-                      className={
-                        sig.action === "blocked"
-                          ? "font-bold text-red-800"
-                          : "font-bold text-green-800"
-                      }
-                    >
-                      {sig.action}
+        (() => {
+          const anyBlocked = flow.signatures.some((s) => s.action === "blocked");
+          return (
+            <div className={anyBlocked ? "bg-red-200 p-2" : "bg-blue-200 p-2"}>
+              <div className="font-extrabold flex items-center gap-1">
+                {anyBlocked ? (
+                  <ShieldExclamationIcon className="w-5 h-5 text-red-700" />
+                ) : null}
+                Suricata
+              </div>
+              <div className="pl-2">
+                {flow.signatures.map((sig) => {
+                  return (
+                    <div className="py-1">
+                      <div className="flex">
+                        <div>Message:&nbsp;</div>
+                        <div className="font-bold">{sig.message}</div>
+                      </div>
+                      <div className="flex">
+                        <div>Rule ID:&nbsp;</div>
+                        <div className="font-bold">{sig.id}</div>
+                      </div>
+                      {sig.tag ? (
+                        <div className="flex">
+                          <div>Rule tag:&nbsp;</div>
+                          <div className="font-bold">{sig.tag}</div>
+                        </div>
+                      ) : null}
+                      <div className="flex">
+                        <div>Action taken:&nbsp;</div>
+                        <div
+                          className={
+                            sig.action === "blocked"
+                              ? "font-bold text-red-800"
+                              : "font-bold text-green-800"
+                          }
+                        >
+                          {sig.action}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()
       ) : undefined}
       <div className="bg-yellow-200 p-2">
         <div className="font-extrabold">Meta</div>

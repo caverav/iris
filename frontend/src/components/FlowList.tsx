@@ -301,6 +301,7 @@ function FlowListEntry({ flow, isActive, onHeartClick }: FlowListEntryProps) {
   const formatted_time_ms = format(new Date(flow.time), ".SSS");
 
   const [isStarred, setStarred] = useState(flow.tags.includes("starred"));
+  const isBlocked = flow.tags.includes("blocked");
 
   // Filter tag list for tags that are handled specially
   const filtered_tag_list = flow.tags.filter((t) => t != "starred");
@@ -315,6 +316,7 @@ function FlowListEntry({ flow, isActive, onHeartClick }: FlowListEntryProps) {
     <li
       className={classNames({
         [classes.active]: isActive,
+        [classes.blocked]: isBlocked,
       })}
     >
       <div className="flex">

@@ -47,6 +47,9 @@ export interface Signature {
   id: number;
   message: string;
   action: string;
+  // Primary rule metadata tag, populated by the enricher from
+  // `alert.metadata.tag` in eve.json (e.g. "path_traversal").
+  tag?: string;
 }
 
 // TODO: pagination WTF

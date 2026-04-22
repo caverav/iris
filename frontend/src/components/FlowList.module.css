@@ -14,4 +14,12 @@
         @apply border-y border-l-4 border-gray-500 bg-gray-300/50
     }
 
+    li.blocked {
+        @apply border-l-4 border-red-600 bg-red-50
+    }
+
+    li.active.blocked {
+        @apply border-l-4 border-red-600 bg-red-100/80
+    }
+
 }

@@ -12,13 +12,26 @@ const computeColorFromString = (str: string) => {
 // Hardcode colors here
 const tagColorMap: Record<string, string> = {
   fishy: "rgb(191, 219, 254)",
-  blocked: "rgb(233, 213, 255)",
+  blocked: "rgb(220, 38, 38)", // red-600 -- attack stopped inline
+  suricata: "rgb(96, 165, 250)", // blue-400 -- generic rule hit
   flag_out: "rgb(254, 204, 204)",
   flag_in: "rgb(209, 213, 219)",
 };
 
+// Namespaced tags emitted by the enricher (rule:*, sid:*) are visually muted
+// so high-signal tags like `blocked` pop.
+const mutedPrefixes = ["rule:", "sid:"];
+
 export function tagToColor(tag: string) {
-  return tagColorMap[tag] ?? computeColorFromString(tag);
+  if (tagColorMap[tag]) {
+    return tagColorMap[tag];
+  }
+  for (const prefix of mutedPrefixes) {
+    if (tag.startsWith(prefix)) {
+      return "rgb(229, 231, 235)"; // gray-200
+    }
+  }
+  return computeColorFromString(tag);
 }
 interface TagProps {
   tag: string;
