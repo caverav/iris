@@ -494,9 +494,10 @@ func (db *Database) SuricataIdFindFlow(id SuricataId) (uuid.UUID, error) {
 
 // Suricata signature
 type Signature struct {
-	Id      int32 `json:"id"`
+	Id      int32  `json:"id"`
 	Message string `json:"message"`
 	Action  string `json:"action"`
+	Tag     string `json:"tag,omitempty"`
 }
 
 // Fingerprints

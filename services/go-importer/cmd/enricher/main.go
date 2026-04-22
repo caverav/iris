@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"go-importer/internal/pkg/db"
 	"io"
 	"net/netip"
+	"strings"
 
 	"bufio"
 	"errors"
@@ -21,6 +23,10 @@ var timescale = flag.String("timescale", "", "Timescale connection string (e. g.
 var tag_flowbits = flag.Bool("flowbits", true, "Tag flows with their flowbits")
 var rescan_period = flag.Int("t", 30, "rescan period (in seconds).")
 
+// Emit sid:<N> tags per rule hit. Disable for long CTFs where the tag table
+// grows unbounded. Defaults to true to match EMIT_SID_TAGS=1 in .env.example.
+var emit_sid_tags = true
+
 var g_db *db.Database
 
 func main() {
@@ -32,6 +38,12 @@ func main() {
 	// If no timescale connection string was supplied, use env variable
 	if *timescale == "" {
 		*timescale = os.Getenv("TIMESCALE")
+	}
+
+	// EMIT_SID_TAGS: any of "0", "false", "no" disables per-sid tags.
+	switch strings.ToLower(os.Getenv("EMIT_SID_TAGS")) {
+	case "0", "false", "no":
+		emit_sid_tags = false
 	}
 
 	log.Println("Connecting to Timescale:", *timescale, "...")
@@ -59,6 +71,14 @@ func watchEve(eve_file string) {
 		if err != nil {
 			log.Println("Failed to open the eve file with error: ", err)
 			continue
+		}
+
+		// Handle file rotation / truncation / rsync-replacement: if the file
+		// shrank below our current offset, reset and reprocess from the top.
+		if new_stat.Size() < ratchet {
+			log.Println("Eve file shrank (rotated/truncated?), resetting ratchet to 0")
+			ratchet = 0
+			prevSize = 0
 		}
 
 		if new_stat.Size() > prevSize {
@@ -211,9 +231,19 @@ func handleEveLine(json string) error {
 	}
 
 	tags := []string{}
+	firstMetadataTag := ""
 	if sig_tags.Exists() {
 		sig_tags.ForEach(func(key, value gjson.Result) bool {
-		tags = append(tags, value.String())
+			raw := value.String()
+			tags = append(tags, raw)
+			// Also emit a namespaced `rule:<tag>` alias so operators can
+			// filter strictly on rule matches without colliding with
+			// assembler-generated tags. Only the first metadata tag gets
+			// the namespaced alias to avoid tag-table explosion.
+			if firstMetadataTag == "" && raw != "" {
+				firstMetadataTag = raw
+				tags = append(tags, "rule:"+strings.ToLower(strings.ReplaceAll(raw, " ", "_")))
+			}
 			return true
 		})
 	}
@@ -223,11 +253,15 @@ func handleEveLine(json string) error {
 			Id:      int32(sig_id.Int()),
 			Message: sig_msg.String(),
 			Action:  sig_action.String(),
+			Tag:     firstMetadataTag,
 		}
 
 		tags = append(tags, "suricata")
 		if sig.Action == "blocked" {
 			tags = append(tags, "blocked")
+		}
+		if emit_sid_tags && sig.Id > 0 {
+			tags = append(tags, fmt.Sprintf("sid:%d", sig.Id))
 		}
 
 		g_db.FlowAddSignatures(flow_id, []db.Signature{sig})
