@@ -46,8 +46,15 @@ The stack can be started with docker-compose, after creating an `.env` file. See
 ```
 cp .env.example .env
 # < Edit the .env file with your favourite text editor >
-docker-compose up -d --build
+docker compose up -d --build
 ```
+
+Tulip uses Docker Compose [profiles](https://docs.docker.com/compose/profiles/)
+to select which services to run. The defaults in `.env.example`
+(`COMPOSE_PROFILES=tulip,suricata-ids`) reproduce the classic Tulip + offline
+Suricata behaviour. See [Deployment modes](#deployment-modes) below for the
+IPS and split-host options.
+
 To ingest traffic, it is recommended to create a shared bind mount with the docker-compose. One convenient way to set this up is as follows:
 1. On the vulnbox, start a rotating packet sniffer (e.g. tcpdump, suricata, ...)
 ```bash
@@ -63,63 +70,158 @@ rsync -avz -e ssh --progress root@10.0.0.2:/pcaps ./pcaps
 The ingestor will use inotify to watch for new pcap's and suricata logs. No need to set a chron job.
 
 
-## Suricata synchronization
+## Deployment modes
 
-### Run in Docker
+Tulip ships four compose profiles that combine into three deployment shapes:
 
-Configure `SURICATA_DIR_HOST` in `.env`.
+| Profile         | Role                                                                         |
+|-----------------|------------------------------------------------------------------------------|
+| `tulip`         | Core stack: timescale, api, frontend, assembler, enricher, flagids           |
+| `suricata-ids`  | Suricata reading offline pcap files (today's default, passive observation)   |
+| `suricata-ips`  | Suricata inline via **NFQUEUE** — matched `drop` rules block attacks in-kernel |
+| `vulnbox-agent` | rsync shipper that pushes `eve.json` and pcaps to a remote Tulip host        |
 
-Create some rules (404 for testing):
+Pick a recipe by setting `COMPOSE_PROFILES` in `.env` (or overriding at the CLI
+with `--profile`).
+
+### 1. All-in-one (IDS — default)
+
+Everything on one host, Suricata reads offline pcaps. This is what you get with
+the default `.env.example`.
+
+```env
+COMPOSE_PROFILES=tulip,suricata-ids
+```
+
 ```bash
-. .env
-mkdir -p ${SURICATA_DIR_HOST}/{etc,lib/rules,log}
-echo 'alert tcp any any -> any any (msg: "404 Not Found"; http.stat_code; content:"404"; metadata: tag notfound; sid:4; rev: 1;)' >> ${SURICATA_DIR_HOST}/lib/rules/suricata.rules
+docker compose up -d --build
 ```
 
-After that run (default config for `eve.json` logging was good enough):
+### 2. All-in-one (IPS — inline blocking)
+
+Same host, but Suricata runs inline via NFQUEUE and actually drops matching
+traffic. See [Suricata IPS mode](#suricata-ips-mode-nfqueue) for the safety
+notes before turning this on.
+
+```env
+COMPOSE_PROFILES=tulip,suricata-ips
+NFQUEUE_IFACE=eth0           # empty = all interfaces
+NFQUEUE_CHAINS=INPUT,FORWARD,DOCKER-USER
+```
 
 ```bash
-docker compose -f docker-compose-suricata.yml up -d --build
+docker compose up -d --build
 ```
 
-### Metadata
-Tags are read from the metadata field of a rule. For example, here's a simple rule to detect a path traversal:
+### 3. Split: Suricata on the vulnbox, Tulip on an analysis host
+
+The vulnbox runs Suricata (IDS or IPS) plus a lightweight shipper; the analysis
+box runs the full Tulip stack and consumes the shipped files. Good for keeping
+the vulnbox light under attack.
+
+**On the vulnbox** — `.env` has:
+
+```env
+COMPOSE_PROFILES=suricata-ips,vulnbox-agent
+VULNBOX_SSH_DEST=tulip@10.0.0.5:/srv/tulip/traffic
+VULNBOX_SSH_KEY=./vulnbox-agent/id_ed25519
+SHIP_INTERVAL=30
 ```
-alert tcp any any -> any any (msg: "Path Traversal-../"; flow:to_server; content: "../"; metadata: tag path_traversal; sid:1; rev: 1;)
+
+Drop an SSH key at `./vulnbox-agent/id_ed25519` (generated with
+`ssh-keygen -t ed25519 -f ./vulnbox-agent/id_ed25519`) and authorize its public
+half on the analysis box. Then:
+
+```bash
+docker compose up -d --build
 ```
-Once this rule is seen in traffic, the `path_traversal` tag will automatically be added to the filters in Tulip.
+
+**On the analysis box** — `.env` has `COMPOSE_PROFILES=tulip` and
+`TRAFFIC_DIR_HOST` pointing to the rsync landing directory. The enricher reads
+`${SURICATA_DIR_HOST}/log/eve.json`, so make sure `VULNBOX_SSH_DEST` on the
+vulnbox targets `${SURICATA_DIR_HOST}/log/eve.json` plus pcaps side-by-side.
+
+## Suricata rules
+
+Rules live in two places:
+
+- **Repo-tracked seeds** at `suricata/rules/` — copied into
+  `${SURICATA_DIR_HOST}/lib/rules/` on first run. Never overwritten, so you can
+  edit freely under `${SURICATA_DIR_HOST}/lib/rules/`.
+- **Runtime dir** at `${SURICATA_DIR_HOST}/lib/rules/` — the Suricata container
+  reads everything here matching `*.rules` (configured in
+  `suricata/etc/suricata.yaml`).
+
+The seed set (`suricata/rules/local.rules`) uses sids in the
+`9000000-9000999` range and carries `metadata: tag <name>;` on every rule. Each
+metadata tag becomes a filterable Tulip tag — both the raw tag (e.g.
+`path_traversal`) and a namespaced alias (`rule:path_traversal`).
+
+### Pulling ET-Open
+
+Set `SURICATA_UPDATE_ENABLE=1` in `.env` to run `suricata-update` at container
+start. Rules are fetched into the same `${SURICATA_DIR_HOST}/lib/rules/` tree.
+
+### Metadata → Tulip tags
+
+The enricher extracts these tags from each Suricata alert:
+
+| Emitted tag          | Source                                                     |
+|----------------------|------------------------------------------------------------|
+| `suricata`           | Any rule hit                                               |
+| `blocked`            | `alert.action == "blocked"` (IPS drop)                     |
+| `<metadata-tag>`     | Raw `metadata: tag <name>;` value                          |
+| `rule:<metadata-tag>`| Namespaced alias of the metadata tag                       |
+| `sid:<N>`            | Per-signature tag; disable with `EMIT_SID_TAGS=0`          |
+| `<flowbit>`          | Each `metadata.flowbits` value (when `-flowbits` enabled)  |
+
+`blocked` flows are highlighted in the flow list with a red left border, and
+the signature panel in the flow detail view turns red when any of the rule hits
+blocked the packet.
 
 > [!NOTE]
 >
-> After editing Suricata rules (renaming or id change) please:
+> After editing Suricata rule metadata (renaming or id change):
 >
-> Remove old logs: `rm ${SURICATA_DIR_HOST}/log/*` (otherwise old signatures will be repopulated).
->
-> Restart Docker containers.
->
-> If database was only restarted (not dropped), try cleaning tags/signatures manually.
+> 1. Remove old logs: `rm ${SURICATA_DIR_HOST}/log/*` (otherwise old signatures
+>    are repopulated from the ratcheted offset).
+> 2. Restart the Suricata and enricher containers.
+> 3. If you only restarted (not dropped) the database, clean up stale
+>    tags/signatures manually.
 
-### eve.json
-Suricata alerts are read directly from the `eve.json` file. Because this file can get quite verbose when all extensions are enabled, it is recommended to strip the config down a fair bit. For example:
-```yaml
-# ...
-  - eve-log:
-      enabled: yes
-      filetype: regular #regular|syslog|unix_dgram|unix_stream|redis
-      filename: eve.json
-      pcap-file: false
-      community-id: false
-      community-id-seed: 0
-      types:
-        - alert:
-            metadata: yes
-            # Enable the logging of tagged packets for rules using the
-            # "tag" keyword.
-            tagged-packets: yes
-# ...
-```
+## Suricata IPS mode (NFQUEUE)
 
-Sessions with matched alerts will be highlighted in the front-end and include which rule was matched.
+Inline blocking is off by default. Turning it on hooks the vulnbox's
+`iptables` with an NFQUEUE jump so Suricata sees (and can `drop`) packets
+before they reach your services.
+
+**Safety defaults** — both are on by default, do not disable them lightly:
+
+- `iptables ... -j NFQUEUE --queue-bypass` means if Suricata crashes, packets
+  pass freely instead of all getting dropped.
+- Suricata's `nfq.fail-open: yes` does the same from the Suricata side.
+
+Together they guarantee that a Suricata failure cannot bring your vulnerable
+services down — the trade-off being that during the outage window you get no
+IPS protection.
+
+**Caveats**
+
+- Linux only. NFQUEUE is a Linux-kernel facility.
+- The container runs with `network_mode: host` and `NET_ADMIN`/`NET_RAW`. This
+  means Suricata-IPS is privileged on the vulnbox — do not expose it to
+  untrusted images on the same host.
+- `NFQUEUE_CHAINS` defaults to `INPUT,FORWARD,DOCKER-USER`. If your vulnerable
+  services run on the host network, `INPUT` is the interesting chain. If they
+  run behind Docker's bridge, `DOCKER-USER` is where Docker routes
+  forwarded-from-outside traffic.
+- Seed rules default to `drop` only on high-confidence patterns (traversal,
+  RCE, flag egress). Review `suricata/rules/local.rules` before relying on it
+  in production — an over-eager rule will drop your own traffic.
+
+**Tearing down the NFQUEUE jump** — `docker compose down` stops the
+containers but leaves the iptables jump in place. Run
+`sudo bash suricata/iptables-teardown.sh` from the repo root, or reboot.
 
 # Security
 Your Tulip instance will probably contain sensitive CTF information, like flags stolen from your machines. If you expose it to the internet and other people find it, you risk losing additional flags. It is recommended to host it on an internal network (for instance behind a VPN) or to put Tulip behind some form of authentication.
