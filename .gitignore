@@ -132,4 +132,10 @@ workspace.xml
 .idea
 
 /traffic
-suricata
+
+# Runtime Suricata data (rules, logs, cache) written by the suricata container.
+# Configured via SURICATA_DIR_HOST in .env. Tracked sources live in /suricata.
+/suricata-runtime
+
+# Generated/ephemeral local caches that can live under the repo root.
+.npm/
