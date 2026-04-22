@@ -1,6 +1,34 @@
 version: "3.5"
+
+# Tulip deployment profiles:
+#   tulip           -- core stack (DB, API, frontend, assembler, enricher, flagids)
+#   suricata-ids    -- Suricata in offline pcap-reading mode (default legacy behaviour)
+#   suricata-ips    -- Suricata inline via NFQUEUE on the host (blocks matched attacks)
+#   vulnbox-agent   -- rsync shipper for split-mode deployments
+#
+# Set COMPOSE_PROFILES in .env (default is `tulip,suricata-ids`).
+# On the vulnbox in split mode, override with `COMPOSE_PROFILES=suricata-ips,vulnbox-agent`.
+
+x-suricata-common: &suricata-common
+  build:
+    context: suricata
+  image: tulip-suricata:latest
+  restart: unless-stopped
+  volumes:
+    - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro
+    - ${SURICATA_DIR_HOST}/log:/var/log/suricata
+    - ${SURICATA_DIR_HOST}/etc:/etc/suricata
+    - ${SURICATA_DIR_HOST}/lib:/var/lib/suricata
+  healthcheck:
+    test: ["CMD-SHELL", "pgrep -x suricata >/dev/null"]
+    interval: 30s
+    timeout: 5s
+    retries: 3
+    start_period: 20s
+
 services:
   timescale:
+    profiles: ["tulip"]
     build: services/timescale
     image: tulip-timescale:latest
     restart: unless-stopped
@@ -20,6 +48,7 @@ services:
     shm_size: '128g'
 
   frontend:
+    profiles: ["tulip"]
     build:
       context: frontend
       dockerfile: Dockerfile-frontend
@@ -39,6 +68,7 @@ services:
       VIRTUAL_HOST: tulip.h4xx.eu
 
   api:
+    profiles: ["tulip"]
     build:
       context: services/api
       dockerfile: Dockerfile-api
@@ -59,6 +89,7 @@ services:
       VM_IP: ${VM_IP}
 
   flagids:
+    profiles: ["tulip"]
     restart: unless-stopped
     build:
       context: services/flagids
@@ -78,6 +109,7 @@ services:
       DUMP_PCAPS: ${DUMP_PCAPS}
 
   assembler:
+    profiles: ["tulip"]
     build:
       context: services/go-importer
       dockerfile: Dockerfile-assembler
@@ -115,6 +147,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   enricher:
+    profiles: ["tulip"]
     build:
       context: services/go-importer
       dockerfile: Dockerfile-enricher
@@ -125,10 +158,73 @@ services:
     networks:
       - internal
     volumes:
+      - ${SURICATA_DIR_HOST}/log:/suricata:ro
       - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro,z
-    command: "./enricher -eve ${TRAFFIC_DIR_DOCKER}/eve.json"
+    command: "./enricher -eve /suricata/eve.json"
     environment:
       TIMESCALE: ${TIMESCALE}
+      EMIT_SID_TAGS: ${EMIT_SID_TAGS}
+
+  # --- Suricata (IDS mode: offline pcap reader) -----------------------------
+  suricata:
+    <<: *suricata-common
+    profiles: ["suricata-ids"]
+    environment:
+      SURICATA_UPDATE_ENABLE: ${SURICATA_UPDATE_ENABLE}
+      SURICATA_OPTIONS: "-l /var/log/suricata -v -r ${TRAFFIC_DIR_DOCKER} --pcap-file-continuous"
+
+  # --- Suricata (IPS mode: inline on host network via NFQUEUE) --------------
+  # Runs with host networking and NET_ADMIN/NET_RAW so it can receive queued
+  # packets. Requires the iptables-init container to install the NFQUEUE jump.
+  suricata-ips:
+    <<: *suricata-common
+    profiles: ["suricata-ips"]
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    depends_on:
+      iptables-init:
+        condition: service_completed_successfully
+    environment:
+      SURICATA_UPDATE_ENABLE: ${SURICATA_UPDATE_ENABLE}
+      SURICATA_OPTIONS: "-l /var/log/suricata -v -q ${NFQUEUE_NUM}"
+
+  # One-shot init container that installs `-j NFQUEUE` on the host's iptables.
+  iptables-init:
+    profiles: ["suricata-ips"]
+    image: tulip-suricata:latest
+    build:
+      context: suricata
+    restart: "no"
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./suricata/iptables-init.sh:/usr/local/bin/iptables-init.sh:ro
+    entrypoint: ["/bin/bash", "/usr/local/bin/iptables-init.sh"]
+    environment:
+      NFQUEUE_NUM: ${NFQUEUE_NUM}
+      NFQUEUE_IFACE: ${NFQUEUE_IFACE}
+      NFQUEUE_CHAINS: ${NFQUEUE_CHAINS}
+      NFQUEUE_IPV6: ${NFQUEUE_IPV6}
+
+  # --- Vulnbox-side shipper (split-mode deployments) ------------------------
+  # Runs on the vulnbox alongside suricata-ips. Rsyncs eve.json and rotating
+  # pcaps to the analysis box where the tulip profile runs.
+  shipper:
+    profiles: ["vulnbox-agent"]
+    build:
+      context: vulnbox-agent
+    image: tulip-shipper:latest
+    restart: unless-stopped
+    volumes:
+      - ${SURICATA_DIR_HOST}/log:/suricata/log:ro
+      - ${TRAFFIC_DIR_HOST}:/traffic:ro
+      - ${VULNBOX_SSH_KEY:-./vulnbox-agent/id_ed25519}:/keys/id_ed25519:ro
+    environment:
+      VULNBOX_SSH_DEST: ${VULNBOX_SSH_DEST}
+      SHIP_INTERVAL: ${SHIP_INTERVAL}
 
 volumes:
   timescale-data:
