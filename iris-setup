@@ -209,7 +209,7 @@ _ENV_LINE_RE = re.compile(r"^(?P<key>[A-Z_][A-Z0-9_]*)=(?P<value>.*)$")
 
 
 def parse_env_file(path: Path) -> dict[str, str]:
-    """Return VAR → value pairs from an .env-style file, stripping quotes."""
+    """Return VAR/value pairs from an .env-style file, stripping quotes."""
     out: dict[str, str] = {}
     if not path.is_file():
         return out

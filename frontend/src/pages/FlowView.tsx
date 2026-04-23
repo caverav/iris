@@ -208,7 +208,7 @@ function Message({ full_flow, flow, flow_item_index, delta_time, id }: FlowProps
   return (
     <div className={`msg from-${flow.from}`} id={id}>
       <div className="msg-head">
-        <span className={`dir ${flow.from}`}>{flow.from === "s" ? "←" : "→"}</span>
+        <span className={`dir ${flow.from}`}>{flow.from === "s" ? "<" : ">"}</span>
         <span className="t">
           {hms}
           <span style={{ color: "var(--ink-faint)" }}>{ms}</span>
@@ -409,7 +409,7 @@ function FlowOverview({ flow }: { flow: FullFlow }) {
       <div className="ov-row">
         <span className="k">conn</span>
         <span className="v mono">
-          {formatIP(flow.src_ip)}:{flow.src_port} → {formatIP(flow.dst_ip)}:{flow.dst_port}
+          {formatIP(flow.src_ip)}:{flow.src_port} {">"} {formatIP(flow.dst_ip)}:{flow.dst_port}
           <span style={{ color: "var(--ink-faint)", marginLeft: 8 }}>
             · {flow.duration}ms
           </span>
@@ -452,7 +452,7 @@ function DetailHead({
         <span className="addr">
           {formatIP(flow.src_ip)}:{flow.src_port}
         </span>
-        <span className="arrow">→</span>
+        <span className="arrow">{">"}</span>
         <span className="addr">
           {formatIP(flow.dst_ip)}:{flow.dst_port}
         </span>
@@ -650,7 +650,7 @@ export function FlowView() {
               }
             }}
           >
-            ← parent
+            parent
           </button>
           <button
             className="ctl"
@@ -663,7 +663,7 @@ export function FlowView() {
               }
             }}
           >
-            child →
+            child
           </button>
         </div>
       )}

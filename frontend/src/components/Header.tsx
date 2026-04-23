@@ -125,7 +125,7 @@ function TickRangeInputs() {
           )
         }
       />
-      <span style={{ color: "var(--ink-faint)" }}>→</span>
+      <span style={{ color: "var(--ink-faint)" }}>..</span>
       <input
         className="num-input"
         id="enddateselection"
