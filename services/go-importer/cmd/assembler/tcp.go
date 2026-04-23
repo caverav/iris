@@ -10,6 +10,7 @@ package main
 
 import (
 	"go-importer/internal/pkg/db"
+	"log"
 	"net/netip"
 
 	"sync"
@@ -80,6 +81,10 @@ type TcpStream struct {
 	dst_port           layers.TCPPort
 	total_size         int
 	num_packets        int
+	// Set the first time we have to truncate bytes to stay under the per-
+	// stream cap. Used to emit exactly one WARN per flow instead of spamming
+	// the log for every segment past the threshold.
+	truncated          bool
 }
 
 func (t *TcpStream) Accept(tcp *layers.TCP, ci gopacket.CaptureInfo, dir reassembly.TCPFlowDirection, nextSeq reassembly.Sequence, start *bool, ac reassembly.AssemblerContext) bool {
@@ -113,17 +118,27 @@ func (t *TcpStream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Ass
 	}
 
 	data := sg.Fetch(length)
+	orig := length
 
-	// We have to make sure to stay under the document limit
-	t.total_size += length
-	bytes_available := (*maxFlowItemSize * 1024 * 1024) - t.total_size
+	// Stay under the per-flow cap (see `-max-flow-item-size`). We have to
+	// compute the budget *before* mutating total_size so the accumulator
+	// reflects what we actually keep, not what arrived on the wire.
+	cap_bytes := *maxFlowItemSize * 1024 * 1024
+	bytes_available := cap_bytes - t.total_size
+	if bytes_available < 0 {
+		bytes_available = 0
+	}
 	if length > bytes_available {
 		length = bytes_available
 	}
-	if length < 0 {
-		length = 0
-	}
+	t.total_size += length
 	data = data[:length]
+
+	if length < orig && !t.truncated {
+		t.truncated = true
+		log.Printf("WARN: flow %s:%d -> %s:%d exceeded -max-flow-item-size (%d MiB); truncating (first dropped %d bytes on this segment). Raise the cap with -max-flow-item-size if you need the full payload.",
+			t.net.Src(), t.src_port, t.net.Dst(), t.dst_port, *maxFlowItemSize, orig-length)
+	}
 
 	var from string
 	if dir == reassembly.TCPDirClientToServer {
