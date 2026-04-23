@@ -127,7 +127,9 @@ services:
     # - -skipchecksum: skip checksum validation
     # - -flush-after: i.e. 2m Not needed in pcap rotation mode
     # - -disable-converters: disable converters
-    # - -discard-extra-data: dont split large flow items, just discard them
+    # - -max-flow-item-size: per-flow cap in MiB (default 16). Large HTTP
+    #   payloads are truncated above this; a WARN is logged on the first
+    #   truncation per stream. Raise the flag if your CTF has big artifacts.
     command: "./assembler -http-session-tracking -skipchecksum -disable-converters -dir ${TRAFFIC_DIR_DOCKER}"
     environment:
       TIMESCALE: ${TIMESCALE}
