@@ -4,7 +4,8 @@ module.exports = {
 
   ],
   presets: [],
-  darkMode: 'media', // or 'class'
+  // Dark-first: the app applies the `dark` class on <html> at mount.
+  darkMode: 'class',
   theme: {
     screens: {
       sm: '640px',
@@ -41,6 +42,29 @@ module.exports = {
       fuchsia: colors.fuchsia,
       pink: colors.pink,
       rose: colors.rose,
+
+      // --- Tulip semantic palette (dark-first, driven by CSS variables in
+      // index.css). Prefer these over raw gray-*, blue-* etc. in new code.
+      canvas: 'rgb(var(--tulip-canvas) / <alpha-value>)',
+      surface: 'rgb(var(--tulip-surface) / <alpha-value>)',
+      elevated: 'rgb(var(--tulip-elevated) / <alpha-value>)',
+      overlay: 'rgb(var(--tulip-overlay) / <alpha-value>)',
+      hairline: 'rgb(var(--tulip-hairline) / <alpha-value>)',
+      line: 'rgb(var(--tulip-line) / <alpha-value>)',
+      'line-strong': 'rgb(var(--tulip-line-strong) / <alpha-value>)',
+      ink: 'rgb(var(--tulip-ink) / <alpha-value>)',
+      'ink-muted': 'rgb(var(--tulip-ink-muted) / <alpha-value>)',
+      'ink-faint': 'rgb(var(--tulip-ink-faint) / <alpha-value>)',
+      accent: 'rgb(var(--tulip-accent) / <alpha-value>)',
+      'accent-soft': 'rgb(var(--tulip-accent-soft) / <alpha-value>)',
+      danger: 'rgb(var(--tulip-danger) / <alpha-value>)',
+      'danger-soft': 'rgb(var(--tulip-danger-soft) / <alpha-value>)',
+      warning: 'rgb(var(--tulip-warning) / <alpha-value>)',
+      'warning-soft': 'rgb(var(--tulip-warning-soft) / <alpha-value>)',
+      success: 'rgb(var(--tulip-success) / <alpha-value>)',
+      'success-soft': 'rgb(var(--tulip-success-soft) / <alpha-value>)',
+      info: 'rgb(var(--tulip-info) / <alpha-value>)',
+      'info-soft': 'rgb(var(--tulip-info-soft) / <alpha-value>)',
     }),
     columns: {
       auto: 'auto',
@@ -113,6 +137,11 @@ module.exports = {
       ping: 'ping 1s cubic-bezier(0, 0, 0.2, 1) infinite',
       pulse: 'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       bounce: 'bounce 1s infinite',
+      // Tulip additions
+      'tulip-fade-in': 'tulip-fade-in 260ms cubic-bezier(0.2, 0.6, 0.2, 1) both',
+      'tulip-rise': 'tulip-rise 320ms cubic-bezier(0.2, 0.6, 0.2, 1) both',
+      'tulip-blocked': 'tulip-blocked 2.6s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+      'tulip-tick': 'tulip-tick 1.8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
     },
     aspectRatio: {
       auto: 'auto',
@@ -573,6 +602,22 @@ module.exports = {
           transform: 'none',
           animationTimingFunction: 'cubic-bezier(0,0,0.2,1)',
         },
+      },
+      'tulip-fade-in': {
+        '0%': { opacity: '0' },
+        '100%': { opacity: '1' },
+      },
+      'tulip-rise': {
+        '0%': { opacity: '0', transform: 'translateY(4px)' },
+        '100%': { opacity: '1', transform: 'translateY(0)' },
+      },
+      'tulip-blocked': {
+        '0%, 100%': { opacity: '0.6' },
+        '50%': { opacity: '1' },
+      },
+      'tulip-tick': {
+        '0%, 100%': { opacity: '0.35' },
+        '50%': { opacity: '1' },
       },
     },
     letterSpacing: {

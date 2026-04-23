@@ -1,5 +1,326 @@
-@import url('https://fonts.googleapis.com/css2?family=Recursive:wght,MONO@300..800,0..1&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* --------------------------------------------------------------------------
+   Tulip design tokens -- neon/synthwave on near-black.
+   Values are mirrored into Tailwind via tailwind.config.js colors; new code
+   should prefer the semantic tailwind classes (`bg-canvas`, `text-ink`,
+   `border-line`, `text-accent`) over raw CSS variables in JSX.
+   -------------------------------------------------------------------------- */
+:root,
+.dark {
+  /* Surfaces -- near-black with faint cool tint. */
+  --bg:             #0a0a0c;
+  --bg-1:           #0e0e12;
+  --bg-2:           #14141a;
+  --bg-3:           #1b1b23;
+
+  --line:           #22222c;
+  --line-strong:    #2f2f3c;
+  --line-accent:    #3a2e44;
+
+  /* Text */
+  --ink:            #e8e6f0;
+  --ink-muted:      #9d9aae;
+  --ink-faint:      #5f5c6e;
+  --ink-ghost:      #3a3744;
+
+  /* Accent hue is switchable at runtime via html[data-accent="..."]. */
+  --acc-h:          326; /* magenta / tulip */
+  --acc:            oklch(0.72 0.22 var(--acc-h));
+  --acc-soft:       oklch(0.72 0.22 var(--acc-h) / 0.16);
+  --acc-glow:       oklch(0.72 0.22 var(--acc-h) / 0.45);
+  --acc-2:          oklch(0.70 0.20 285); /* violet secondary */
+  --acc-2-soft:     oklch(0.70 0.20 285 / 0.14);
+
+  /* Semantic hues. OKLCH keeps perceptual contrast consistent with accent. */
+  --ok:             oklch(0.78 0.17 155);
+  --ok-soft:        oklch(0.78 0.17 155 / 0.14);
+  --warn:           oklch(0.80 0.17 70);
+  --warn-soft:      oklch(0.80 0.17 70 / 0.14);
+  --danger:         oklch(0.70 0.21 24);
+  --danger-soft:    oklch(0.70 0.21 24 / 0.14);
+  --info:           oklch(0.78 0.15 220);
+  --info-soft:      oklch(0.78 0.15 220 / 0.14);
+
+  /* Density scale -- overridden by html[data-density="..."]. */
+  --row-h:          44px;
+  --cell-pad:       10px;
+  --radius:         4px;
+
+  --font:           "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  /* RGB aliases for Tailwind <alpha-value> slots. Mirrors of the hex values
+     above. Keep these in sync if you tune the palette. */
+  --tulip-canvas:       10 10 12;     /* #0a0a0c */
+  --tulip-surface:      14 14 18;     /* #0e0e12 */
+  --tulip-elevated:     20 20 26;     /* #14141a */
+  --tulip-overlay:      27 27 35;     /* #1b1b23 */
+  --tulip-hairline:     34 34 44;     /* #22222c */
+  --tulip-line:         34 34 44;     /* #22222c */
+  --tulip-line-strong:  47 47 60;     /* #2f2f3c */
+  --tulip-ink:          232 230 240;  /* #e8e6f0 */
+  --tulip-ink-muted:    157 154 174;  /* #9d9aae */
+  --tulip-ink-faint:    95 92 110;    /* #5f5c6e */
+}
+
+/* Accent hue presets (Tweaks panel). */
+html[data-accent="magenta"] { --acc-h: 326; }
+html[data-accent="amber"]   { --acc-h: 55;  }
+html[data-accent="cyan"]    { --acc-h: 200; }
+html[data-accent="green"]   { --acc-h: 150; }
+
+/* Density presets. */
+html[data-density="cozy"]     { --row-h: 52px; --cell-pad: 14px; }
+html[data-density="standard"] { --row-h: 48px; --cell-pad: 12px; }
+html[data-density="dense"]    { --row-h: 40px; --cell-pad: 8px;  }
+
+/* --------------------------------------------------------------------------
+   Base reset.
+   -------------------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+html {
+  color-scheme: dark;
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 13px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: var(--acc-soft);
+  color: var(--ink);
+}
+
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: inherit; text-decoration: none; }
+
+/* Scrollbar: thin, desaturated, no buttons. */
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 10px;
+  border: 2px solid var(--bg);
+}
+*::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
+
+/* --------------------------------------------------------------------------
+   Form controls -- global theme so scattered raw <input> / <select> pick up
+   the dark look without individual class churn.
+   -------------------------------------------------------------------------- */
+input[type='text'],
+input[type='number'],
+input:not([type]),
+select,
+textarea {
+  background: var(--bg-2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-family: var(--font);
+  font-size: 11.5px;
+  line-height: 1.4;
+  transition: border-color 120ms ease, background 120ms ease, box-shadow 120ms ease;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--acc);
+  box-shadow: 0 0 0 3px var(--acc-soft);
+  background: var(--bg-3);
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--ink-faint);
+}
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--ink-muted) 50%),
+    linear-gradient(135deg, var(--ink-muted) 50%, transparent 50%);
+  background-position:
+    right 10px top 50%,
+    right 6px top 50%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  padding-right: 24px;
+}
+
+/* --------------------------------------------------------------------------
+   Typography utilities.
+   -------------------------------------------------------------------------- */
+.text-caps,
+.label-caps {
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+/* Keep any legacy `.text-mono` / `.font-mono` callers working. */
+.text-mono,
+.font-mono {
+  font-family: var(--font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------------------------
+   Reusable control (.ctl) -- used by the header, tabs, and toolbars.
+   -------------------------------------------------------------------------- */
+.ctl {
+  height: 26px;
+  padding: 0 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--ink);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  text-decoration: none;
+}
+.ctl:hover {
+  border-color: var(--line-strong);
+  background: var(--bg-3);
+}
+.ctl.is-active {
+  border-color: var(--acc);
+  color: var(--ink);
+  background: var(--acc-soft);
+}
+.ctl.ghost { background: transparent; }
+.ctl.accent {
+  background: var(--acc-soft);
+  border-color: transparent;
+  color: var(--acc);
+}
+.ctl.accent:hover {
+  background: var(--acc);
+  color: var(--bg);
+}
+.ctl kbd,
+kbd.kbd-inline {
+  font: inherit;
+  font-size: 9px;
+  padding: 1px 4px;
+  margin-left: 4px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink-faint);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.ctl .caret { width: 8px; height: 8px; opacity: 0.5; }
+
+/* Keep a minimal `.btn` alias for older callers. */
+.btn { @apply inline-flex items-center gap-1.5; padding: 4px 10px; height: 26px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--bg-2); color: var(--ink); font-size: 11.5px; cursor: pointer; transition: background 120ms ease, border-color 120ms ease; }
+.btn:hover { background: var(--bg-3); border-color: var(--line-strong); }
+.btn-accent { color: var(--acc); border-color: transparent; background: var(--acc-soft); }
+.btn-accent:hover { background: var(--acc); color: var(--bg); border-color: transparent; }
+
+/* --------------------------------------------------------------------------
+   Segmented control.
+   -------------------------------------------------------------------------- */
+.seg {
+  display: inline-flex;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.seg button {
+  background: transparent;
+  border: 0;
+  color: var(--ink-muted);
+  padding: 4px 12px;
+  font-size: 11px;
+  cursor: pointer;
+  font-family: var(--font);
+}
+.seg button.on { background: var(--acc-soft); color: var(--acc); }
+.seg button:hover:not(.on) { color: var(--ink); }
+
+/* --------------------------------------------------------------------------
+   Tags (dot + chip styles). Variant colors drive via CSS custom properties.
+   -------------------------------------------------------------------------- */
+.tag {
+  font-family: var(--font);
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: transform 80ms ease, opacity 120ms ease;
+  letter-spacing: 0.02em;
+}
+.tag:active { transform: translateY(1px); }
+.tag.is-off { opacity: 0.35; }
+.tag.is-excluded { text-decoration: line-through; opacity: 0.55; }
+
+/* Default (and dot) style. */
+html:not([data-tag-style="chip"]) .tag,
+html[data-tag-style="dot"] .tag {
+  background: transparent;
+  color: var(--ink-muted);
+  padding-left: 3px;
+  padding-right: 3px;
+}
+html:not([data-tag-style="chip"]) .tag::before,
+html[data-tag-style="dot"] .tag::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--tag-c, var(--ink-muted));
+  box-shadow: 0 0 4px var(--tag-glow, transparent);
+  flex-shrink: 0;
+}
+html:not([data-tag-style="chip"]) .tag.is-on,
+html[data-tag-style="dot"] .tag.is-on { color: var(--ink); }
+
+html[data-tag-style="chip"] .tag {
+  background: var(--tag-bg, var(--bg-2));
+  color: var(--tag-c, var(--ink-muted));
+  border: 1px solid var(--tag-border, var(--line));
+}
+
+/* Variant colors. */
+.tag.v-danger { --tag-c: var(--danger); --tag-bg: var(--danger-soft); --tag-border: color-mix(in oklab, var(--danger) 40%, transparent); --tag-glow: var(--danger); }
+.tag.v-warn   { --tag-c: var(--warn);   --tag-bg: var(--warn-soft);   --tag-border: color-mix(in oklab, var(--warn) 35%, transparent); --tag-glow: var(--warn); }
+.tag.v-ok     { --tag-c: var(--ok);     --tag-bg: var(--ok-soft);     --tag-border: color-mix(in oklab, var(--ok) 35%, transparent); --tag-glow: var(--ok); }
+.tag.v-info   { --tag-c: var(--info);   --tag-bg: var(--info-soft);   --tag-border: color-mix(in oklab, var(--info) 30%, transparent); --tag-glow: var(--info); }
+.tag.v-acc    { --tag-c: var(--acc);    --tag-bg: var(--acc-soft);    --tag-border: color-mix(in oklab, var(--acc) 40%, transparent); --tag-glow: var(--acc); }
+.tag.v-muted  { --tag-c: var(--ink-faint); --tag-bg: var(--bg-2); --tag-border: var(--line); }
+
+/* --------------------------------------------------------------------------
+   Separators.
+   -------------------------------------------------------------------------- */
+.sep { width: 1px; height: 22px; background: var(--line); margin: 0 4px; flex-shrink: 0; }
