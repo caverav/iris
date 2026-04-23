@@ -1,6 +1,7 @@
-/* ⌘K command palette. Navigate + filter + action surface.
+/* Mod+K command palette (⌘K on macOS, Ctrl+K elsewhere). Navigate +
+   filter + action surface.
    Kept light on implementation: arrow-key selection, fuzzy "includes"
-   filter on labels, Enter to dispatch. Extend `all` when new actions
+   filter on labels, Enter to dispatch. Extend `ALL` when new actions
    land. */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {

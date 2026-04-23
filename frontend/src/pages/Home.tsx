@@ -1,5 +1,6 @@
 import { Link, useSearchParams } from "react-router-dom";
 import { IrisMark, IconFlows, IconCmdK } from "../components/icons";
+import { IS_MAC, modCombo } from "../utils/platform";
 
 /* Home landing: glowing tulip mark over a radial-gradient canvas, a small
    set of shortcut-reference cards, and two CTAs that map to the two most
@@ -38,7 +39,7 @@ const shortcutCards: Array<{ title: string; rows: Array<[string, string]> }> = [
       ["d", "diff"],
       ["g", "graph"],
       ["f / e", "diff slot 1 / 2"],
-      ["⌘ K", "command"],
+      [modCombo("k"), "command"],
     ],
   },
 ];
@@ -69,17 +70,19 @@ export function Home() {
             type="button"
             className="ctl"
             onClick={() => {
-              // Dispatch a synthetic keydown so Shell's ⌘K handler opens the
-              // palette without Home needing to know about the palette state.
+              // Dispatch a synthetic keydown so Shell's Mod+K handler opens
+              // the palette without Home needing to know about its state.
+              // metaKey fires on macOS, ctrlKey on everyone else.
               const e = new KeyboardEvent("keydown", {
                 key: "k",
-                metaKey: true,
+                metaKey: IS_MAC,
+                ctrlKey: !IS_MAC,
                 bubbles: true,
               });
               window.dispatchEvent(e);
             }}
           >
-            <IconCmdK size={12} /> command palette <kbd>⌘K</kbd>
+            <IconCmdK size={12} /> command palette <kbd>{modCombo("k")}</kbd>
           </button>
         </div>
 

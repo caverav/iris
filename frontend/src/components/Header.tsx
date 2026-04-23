@@ -26,6 +26,7 @@ import {
   IconSearch,
   IrisMark,
 } from "./icons";
+import { modCombo } from "../utils/platform";
 
 /* --- service selector -------------------------------------------------- */
 
@@ -302,7 +303,7 @@ export function Header({ onOpenPalette }: HeaderProps) {
       <button type="button" className="ctl" onClick={onOpenPalette}>
         <IconCmdK size={12} />
         <span>command</span>
-        <kbd>⌘K</kbd>
+        <kbd>{modCombo("k")}</kbd>
       </button>
 
       <div className="sep" />

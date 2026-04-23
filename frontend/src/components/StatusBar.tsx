@@ -1,6 +1,7 @@
 /* Global status bar pinned to the bottom row of the app shell. Terminal /
    Bloomberg-style footer: connection dot, current view, shortcut hints. */
 import { useEffect, useState } from "react";
+import { modCombo } from "../utils/platform";
 
 export function StatusBar({ view }: { view: string }) {
   // Heartbeat so the live dot feels alive -- purely cosmetic.
@@ -23,7 +24,7 @@ export function StatusBar({ view }: { view: string }) {
         <kbd>?</kbd> shortcuts
       </span>
       <span>
-        <kbd>⌘K</kbd> command
+        <kbd>{modCombo("k")}</kbd> command
       </span>
       <span style={{ color: "var(--ink-muted)" }}>
         view ·{" "}
