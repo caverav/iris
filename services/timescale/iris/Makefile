@@ -1,6 +1,6 @@
-EXTENSION = tulip
-MODULE_big = tulip
-OBJS = tulip.o
+EXTENSION = iris
+MODULE_big = iris
+OBJS = iris.o
 PG_CONFIG = pg_config
 PGXS := $(shell $(PG_CONFIG) --pgxs)
 include $(PGXS)

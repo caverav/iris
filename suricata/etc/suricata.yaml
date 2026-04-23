@@ -1,6 +1,6 @@
 %YAML 1.1
 ---
-# Tulip-flavored Suricata config.
+# Iris-flavored Suricata config.
 # Intentionally trimmed: eve-log only, supports both offline pcap IDS and
 # inline NFQUEUE IPS modes via command-line flags.
 
@@ -104,7 +104,7 @@ nfq:
   bypass-mark: 2
   bypass-mask: 2
 
-# --- af-packet (unused by tulip IPS; kept for reference) ---
+# --- af-packet (unused by iris IPS; kept for reference) ---
 af-packet:
   - interface: default
     threads: auto

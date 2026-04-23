@@ -1,9 +1,9 @@
-# 🌷 Tulip
+# 🪻 Iris
 
-Tulip is a flow analyzer meant for use during Attack / Defence CTF competitions. It allows players to easily find some traffic related to their service and automatically generates python snippets to replicate attacks.
+Iris is a flow analyzer meant for use during Attack / Defence CTF competitions. It allows players to easily find some traffic related to their service and automatically generates python snippets to replicate attacks.
 
 ## Origins
-Tulip was developed by Team Europe for use in the first International Cyber Security Challenge. The project is a fork of [flower](https://github.com/secgroup/flower), but it contains quite some changes:
+Iris is a fork of Tulip, which was developed by Team Europe for use in the first International Cyber Security Challenge. The project is a fork of [flower](https://github.com/secgroup/flower), but it contains quite some changes:
 * New front-end (typescript / react / tailwind)
 * New ingestor code, based on gopacket
 * IPv6 support
@@ -49,9 +49,9 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Tulip uses Docker Compose [profiles](https://docs.docker.com/compose/profiles/)
+Iris uses Docker Compose [profiles](https://docs.docker.com/compose/profiles/)
 to select which services to run. The defaults in `.env.example`
-(`COMPOSE_PROFILES=tulip,suricata-ids`) reproduce the classic Tulip + offline
+(`COMPOSE_PROFILES=iris,suricata-ids`) reproduce the classic Iris + offline
 Suricata behaviour. See [Deployment modes](#deployment-modes) below for the
 IPS and split-host options.
 
@@ -60,7 +60,7 @@ To ingest traffic, it is recommended to create a shared bind mount with the dock
 ```bash
 tcpdump -i eth0 -G 180 -w "traffic_%H:%M:%S.pcap" port 8080
 ```
-2. Using rsync, copy complete captures to the machine running tulip (e.g. to /traffic)
+2. Using rsync, copy complete captures to the machine running iris (e.g. to /traffic)
 ```bash
 rsync -avz -e ssh --progress root@10.0.0.2:/pcaps ./pcaps
 ```
@@ -72,14 +72,14 @@ The ingestor will use inotify to watch for new pcap's and suricata logs. No need
 
 ## Deployment modes
 
-Tulip ships four compose profiles that combine into three deployment shapes:
+Iris ships four compose profiles that combine into three deployment shapes:
 
 | Profile         | Role                                                                         |
 |-----------------|------------------------------------------------------------------------------|
-| `tulip`         | Core stack: timescale, api, frontend, assembler, enricher, flagids           |
+| `iris`          | Core stack: timescale, api, frontend, assembler, enricher, flagids           |
 | `suricata-ids`  | Suricata reading offline pcap files (today's default, passive observation)   |
 | `suricata-ips`  | Suricata inline via **NFQUEUE** — matched `drop` rules block attacks in-kernel |
-| `vulnbox-agent` | rsync shipper that pushes `eve.json` and pcaps to a remote Tulip host        |
+| `vulnbox-agent` | rsync shipper that pushes `eve.json` and pcaps to a remote Iris host        |
 
 Pick a recipe by setting `COMPOSE_PROFILES` in `.env` (or overriding at the CLI
 with `--profile`).
@@ -90,7 +90,7 @@ Everything on one host, Suricata reads offline pcaps. This is what you get with
 the default `.env.example`.
 
 ```env
-COMPOSE_PROFILES=tulip,suricata-ids
+COMPOSE_PROFILES=iris,suricata-ids
 ```
 
 ```bash
@@ -104,7 +104,7 @@ traffic. See [Suricata IPS mode](#suricata-ips-mode-nfqueue) for the safety
 notes before turning this on.
 
 ```env
-COMPOSE_PROFILES=tulip,suricata-ips
+COMPOSE_PROFILES=iris,suricata-ips
 NFQUEUE_IFACE=eth0           # empty = all interfaces
 NFQUEUE_CHAINS=INPUT,FORWARD,DOCKER-USER
 ```
@@ -113,17 +113,17 @@ NFQUEUE_CHAINS=INPUT,FORWARD,DOCKER-USER
 docker compose up -d --build
 ```
 
-### 3. Split: Suricata on the vulnbox, Tulip on an analysis host
+### 3. Split: Suricata on the vulnbox, Iris on an analysis host
 
 The vulnbox runs Suricata (IDS or IPS) plus a lightweight shipper; the analysis
-box runs the full Tulip stack and consumes the shipped files. Good for keeping
+box runs the full Iris stack and consumes the shipped files. Good for keeping
 the vulnbox light under attack.
 
 **On the vulnbox** — `.env` has:
 
 ```env
 COMPOSE_PROFILES=suricata-ips,vulnbox-agent
-VULNBOX_SSH_DEST=tulip@10.0.0.5:/srv/tulip/traffic
+VULNBOX_SSH_DEST=iris@10.0.0.5:/srv/iris/traffic
 VULNBOX_SSH_KEY=./vulnbox-agent/id_ed25519
 SHIP_INTERVAL=30
 ```
@@ -136,7 +136,7 @@ half on the analysis box. Then:
 docker compose up -d --build
 ```
 
-**On the analysis box** — `.env` has `COMPOSE_PROFILES=tulip` and
+**On the analysis box** — `.env` has `COMPOSE_PROFILES=iris` and
 `TRAFFIC_DIR_HOST` pointing to the rsync landing directory. The enricher reads
 `${SURICATA_DIR_HOST}/log/eve.json`, so make sure `VULNBOX_SSH_DEST` on the
 vulnbox targets `${SURICATA_DIR_HOST}/log/eve.json` plus pcaps side-by-side.
@@ -154,7 +154,7 @@ Rules live in two places:
 
 The seed set (`suricata/rules/local.rules`) uses sids in the
 `9000000-9000999` range and carries `metadata: tag <name>;` on every rule. Each
-metadata tag becomes a filterable Tulip tag — both the raw tag (e.g.
+metadata tag becomes a filterable Iris tag — both the raw tag (e.g.
 `path_traversal`) and a namespaced alias (`rule:path_traversal`).
 
 ### Pulling ET-Open
@@ -162,7 +162,7 @@ metadata tag becomes a filterable Tulip tag — both the raw tag (e.g.
 Set `SURICATA_UPDATE_ENABLE=1` in `.env` to run `suricata-update` at container
 start. Rules are fetched into the same `${SURICATA_DIR_HOST}/lib/rules/` tree.
 
-### Metadata → Tulip tags
+### Metadata → Iris tags
 
 The enricher extracts these tags from each Suricata alert:
 
@@ -224,10 +224,10 @@ containers but leaves the iptables jump in place. Run
 `sudo bash suricata/iptables-teardown.sh` from the repo root, or reboot.
 
 # Security
-Your Tulip instance will probably contain sensitive CTF information, like flags stolen from your machines. If you expose it to the internet and other people find it, you risk losing additional flags. It is recommended to host it on an internal network (for instance behind a VPN) or to put Tulip behind some form of authentication.
+Your Iris instance will probably contain sensitive CTF information, like flags stolen from your machines. If you expose it to the internet and other people find it, you risk losing additional flags. It is recommended to host it on an internal network (for instance behind a VPN) or to put Iris behind some form of authentication.
 
 # Contributing
 If you have an idea for a new feature, bug fixes, UX improvements, or other contributions, feel free to open a pull request or create an issue!      
 
 # Credits
-Tulip was written by [@RickdeJager](https://github.com/rickdejager) and [@Bazumo](https://github.com/bazumo), with additional help from [@Sijisu](https://github.com/sijisu). Thanks to our fellow Team Europe players and coaches for testing, feedback and suggestions. Finally, thanks to the team behind [flower](https://github.com/secgroup/flower) for opensourcing their tooling.
+Tulip (the original project) was written by [@RickdeJager](https://github.com/rickdejager) and [@Bazumo](https://github.com/bazumo), with additional help from [@Sijisu](https://github.com/sijisu). Thanks to our fellow Team Europe players and coaches for testing, feedback and suggestions. Finally, thanks to the team behind [flower](https://github.com/secgroup/flower) for opensourcing their tooling.

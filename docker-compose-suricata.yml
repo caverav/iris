@@ -1,7 +1,7 @@
 # DEPRECATED: Suricata is now part of the main docker-compose.yml via profiles.
 #
-#   docker compose --profile tulip --profile suricata-ids up -d --build   # old behaviour
-#   docker compose --profile tulip --profile suricata-ips up -d --build   # NEW: inline IPS
+#   docker compose --profile iris --profile suricata-ids up -d --build   # old behaviour
+#   docker compose --profile iris --profile suricata-ips up -d --build   # NEW: inline IPS
 #
 # COMPOSE_PROFILES in .env controls the default. See README.md.
 #
@@ -16,6 +16,6 @@ services:
       - -c
       - |
         echo "docker-compose-suricata.yml is deprecated."
-        echo "Use: docker compose --profile tulip --profile suricata-ids up"
-        echo "Or:  docker compose --profile tulip --profile suricata-ips up"
+        echo "Use: docker compose --profile iris --profile suricata-ids up"
+        echo "Or:  docker compose --profile iris --profile suricata-ips up"
         exit 1

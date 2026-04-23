@@ -1,9 +1,9 @@
 #!/bin/sh
 # Ship Suricata eve.json and rotating pcaps from the vulnbox to a remote
-# analysis box running the Tulip stack.
+# analysis box running the Iris stack.
 #
 # Environment:
-#   VULNBOX_SSH_DEST     Required. rsync destination, e.g. user@tulip:/srv/tulip/traffic
+#   VULNBOX_SSH_DEST     Required. rsync destination, e.g. user@iris:/srv/iris/traffic
 #   SURICATA_LOG_DIR     Local directory that contains eve.json (default /suricata/log).
 #   TRAFFIC_DIR          Local directory that contains *.pcap (default /traffic).
 #   SHIP_INTERVAL        Seconds between pushes (default 30).

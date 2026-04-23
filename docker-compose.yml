@@ -1,18 +1,18 @@
 version: "3.5"
 
-# Tulip deployment profiles:
-#   tulip           -- core stack (DB, API, frontend, assembler, enricher, flagids)
+# Iris deployment profiles:
+#   iris            -- core stack (DB, API, frontend, assembler, enricher, flagids)
 #   suricata-ids    -- Suricata in offline pcap-reading mode (default legacy behaviour)
 #   suricata-ips    -- Suricata inline via NFQUEUE on the host (blocks matched attacks)
 #   vulnbox-agent   -- rsync shipper for split-mode deployments
 #
-# Set COMPOSE_PROFILES in .env (default is `tulip,suricata-ids`).
+# Set COMPOSE_PROFILES in .env (default is `iris,suricata-ids`).
 # On the vulnbox in split mode, override with `COMPOSE_PROFILES=suricata-ips,vulnbox-agent`.
 
 x-suricata-common: &suricata-common
   build:
     context: suricata
-  image: tulip-suricata:latest
+  image: iris-suricata:latest
   restart: unless-stopped
   volumes:
     - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro
@@ -28,9 +28,9 @@ x-suricata-common: &suricata-common
 
 services:
   timescale:
-    profiles: ["tulip"]
+    profiles: ["iris"]
     build: services/timescale
-    image: tulip-timescale:latest
+    image: iris-timescale:latest
     restart: unless-stopped
     volumes:
     - timescale-data:/var/lib/postgresql/data
@@ -41,18 +41,18 @@ services:
       - internal
     environment:
       POSTGRES_HOST_AUTH_METHOD: trust
-      POSTGRES_USER: tulip
-      POSTGRES_DB: tulip
+      POSTGRES_USER: iris
+      POSTGRES_DB: iris
     # This does not need to be adjusted, unless you actually want to limit it
     # Postgres uses shared memory for caching, and docker assigns just 64 MB by default
     shm_size: '128g'
 
   frontend:
-    profiles: ["tulip"]
+    profiles: ["iris"]
     build:
       context: frontend
       dockerfile: Dockerfile-frontend
-    image: tulip-frontend:latest
+    image: iris-frontend:latest
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -65,14 +65,14 @@ services:
       - internal
     environment:
       API_SERVER_ENDPOINT: http://api:5000/
-      VIRTUAL_HOST: tulip.h4xx.eu
+      VIRTUAL_HOST: iris.h4xx.eu
 
   api:
-    profiles: ["tulip"]
+    profiles: ["iris"]
     build:
       context: services/api
       dockerfile: Dockerfile-api
-    image: tulip-api:latest
+    image: iris-api:latest
     restart: unless-stopped
     depends_on:
       - timescale
@@ -82,18 +82,18 @@ services:
       - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro
     environment:
       TIMESCALE: ${TIMESCALE}
-      TULIP_TRAFFIC_DIR: ${TRAFFIC_DIR_DOCKER}
+      IRIS_TRAFFIC_DIR: ${TRAFFIC_DIR_DOCKER}
       FLAG_REGEX: ${FLAG_REGEX}
       TICK_START: ${TICK_START}
       TICK_LENGTH: ${TICK_LENGTH}
       VM_IP: ${VM_IP}
 
   flagids:
-    profiles: ["tulip"]
+    profiles: ["iris"]
     restart: unless-stopped
     build:
       context: services/flagids
-    image: tulip-flagids:latest
+    image: iris-flagids:latest
     depends_on:
       - timescale
     networks:
@@ -109,11 +109,11 @@ services:
       DUMP_PCAPS: ${DUMP_PCAPS}
 
   assembler:
-    profiles: ["tulip"]
+    profiles: ["iris"]
     build:
       context: services/go-importer
       dockerfile: Dockerfile-assembler
-    image: tulip-assembler:latest
+    image: iris-assembler:latest
     restart: unless-stopped
     depends_on:
       - timescale
@@ -121,7 +121,7 @@ services:
       - internal
     volumes:
       - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro,z
-    # Command line flags most likely to fix a tulip issue:
+    # Command line flags most likely to fix an iris issue:
     # - -http-session-tracking: enable HTTP session tracking
     # - -dir: directory to read traffic from
     # - -skipchecksum: skip checksum validation
@@ -147,11 +147,11 @@ services:
       - "host.docker.internal:host-gateway"
 
   enricher:
-    profiles: ["tulip"]
+    profiles: ["iris"]
     build:
       context: services/go-importer
       dockerfile: Dockerfile-enricher
-    image: tulip-enricher:latest
+    image: iris-enricher:latest
     restart: unless-stopped
     depends_on:
       - timescale
@@ -193,7 +193,7 @@ services:
   # One-shot init container that installs `-j NFQUEUE` on the host's iptables.
   iptables-init:
     profiles: ["suricata-ips"]
-    image: tulip-suricata:latest
+    image: iris-suricata:latest
     build:
       context: suricata
     restart: "no"
@@ -211,12 +211,12 @@ services:
 
   # --- Vulnbox-side shipper (split-mode deployments) ------------------------
   # Runs on the vulnbox alongside suricata-ips. Rsyncs eve.json and rotating
-  # pcaps to the analysis box where the tulip profile runs.
+  # pcaps to the analysis box where the iris profile runs.
   shipper:
     profiles: ["vulnbox-agent"]
     build:
       context: vulnbox-agent
-    image: tulip-shipper:latest
+    image: iris-shipper:latest
     restart: unless-stopped
     volumes:
       - ${SURICATA_DIR_HOST}/log:/suricata/log:ro

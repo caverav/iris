@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tulip Suricata entrypoint.
+# Iris Suricata entrypoint.
 #
 # Responsibilities:
 #   * Seed /etc/suricata and /var/lib/suricata/rules on first run (idempotent).
@@ -36,10 +36,10 @@ if [ -d "$SEED_ETC_DIR" ]; then
 fi
 
 if [ "${SURICATA_UPDATE_ENABLE:-0}" = "1" ]; then
-  echo "[tulip-suricata] running suricata-update (SURICATA_UPDATE_ENABLE=1)"
-  suricata-update --no-test -o "$RULES_DIR" || echo "[tulip-suricata] suricata-update failed, continuing with existing rules"
+  echo "[iris-suricata] running suricata-update (SURICATA_UPDATE_ENABLE=1)"
+  suricata-update --no-test -o "$RULES_DIR" || echo "[iris-suricata] suricata-update failed, continuing with existing rules"
 fi
 
-echo "[tulip-suricata] launching: /usr/bin/suricata ${SURICATA_OPTIONS:-}"
+echo "[iris-suricata] launching: /usr/bin/suricata ${SURICATA_OPTIONS:-}"
 # shellcheck disable=SC2086
 exec /usr/bin/suricata ${SURICATA_OPTIONS:-}
