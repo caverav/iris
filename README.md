@@ -26,18 +26,31 @@ Iris is a fork of Tulip, which was developed by Team Europe for use in the first
 ![](./demo_images/demo3.png)
 
 ## Configuration
-Before starting the stack, edit `services/api/configurations.py`:
+
+The quickest way is the interactive wizard:
 
 ```
-vm_ip = "10.60.4.1"
-services = [{"ip": vm_ip, "port": 18080, "name": "BIOMarkt"},
-            {"ip": vm_ip, "port": 5555, "name": "SaaS"},
-]
+./iris-setup
 ```
 
-You can also edit this during the CTF, just rebuild the `api` service:
+It walks you through deployment mode, tick length, flag regex, services, Suricata,
+and split-mode SSH details, then writes `.env` and `services/api/configurations.py`
+for you. Re-running the wizard later picks up your previous answers as defaults,
+so you can tweak one section without redoing the rest.
+
 ```
-docker-compose up --build -d api
+./iris-setup --dry-run    # preview the diff, write nothing
+./iris-setup --no-color   # plain output for logs / pipes
+```
+
+If you prefer to edit by hand, the two files are:
+
+- `.env` (copy `.env.example` first) for runtime config,
+- `services/api/configurations.py` for the services list.
+
+You can edit either during the CTF and rebuild just the `api` service:
+```
+docker compose up --build -d api
 ```
 
 ## Usage

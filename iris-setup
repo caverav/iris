@@ -1,0 +1,927 @@
+#!/usr/bin/env python3
+"""
+Iris setup wizard.
+
+Interactive, stdlib-only CLI that walks you through the .env + services/api/
+configurations.py setup. Re-runnable: if an .env already exists its values
+become the wizard's defaults so you can tweak a single section without
+retyping everything.
+
+    ./iris-setup                 # run the wizard
+    ./iris-setup --dry-run       # print what would change, write nothing
+    ./iris-setup --no-color      # plain output (for pipes / logs)
+
+Reads the shipping .env.example as the layout template, so the resulting
+.env keeps all the section comments and the order of keys. Unknown keys
+already in an existing .env are preserved verbatim.
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shutil
+import sys
+import textwrap
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Colour / IO helpers
+# ---------------------------------------------------------------------------
+
+_USE_COLOR = sys.stdout.isatty()
+
+
+def _c(code: str, text: str) -> str:
+    if not _USE_COLOR:
+        return text
+    return f"\x1b[{code}m{text}\x1b[0m"
+
+
+def dim(s: str) -> str:      return _c("2", s)
+def bold(s: str) -> str:     return _c("1", s)
+def accent(s: str) -> str:   return _c("1;38;5;205", s)   # magenta/pink -- iris
+def cyan(s: str) -> str:     return _c("38;5;117", s)
+def green(s: str) -> str:    return _c("38;5;114", s)
+def yellow(s: str) -> str:   return _c("38;5;221", s)
+def red(s: str) -> str:      return _c("38;5;203", s)
+
+
+IRIS_ASCII = r"""
+        \  |  /
+         \ | /
+          \|/            iris
+           *          setup wizard
+          /|\
+         / | \
+        /  |  \
+           |
+           |
+"""
+
+
+def banner() -> None:
+    print(accent(IRIS_ASCII))
+
+
+def section(title: str) -> None:
+    print()
+    print(accent("── " + title + " " + "─" * max(0, 58 - len(title))))
+
+
+def info(msg: str) -> None:
+    print(cyan("› ") + msg)
+
+
+def warn(msg: str) -> None:
+    print(yellow("! ") + msg)
+
+
+def err(msg: str) -> None:
+    print(red("✗ ") + msg, file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
+def _fmt_default(default: str | None) -> str:
+    if default is None or default == "":
+        return dim(" [empty]")
+    return dim(f" [{default}]")
+
+
+def ask(
+    prompt: str,
+    default: str | None = None,
+    validator=None,
+    required: bool = False,
+    allow_empty: bool = False,
+) -> str:
+    """Prompt for a single line. Enter accepts the default."""
+    while True:
+        raw = input(f"  {prompt}{_fmt_default(default)} ").strip()
+        value = raw if raw else (default or "")
+        if not value and not allow_empty and required:
+            err("This value is required.")
+            continue
+        if validator:
+            ok, msg = validator(value)
+            if not ok:
+                err(msg)
+                continue
+        return value
+
+
+def ask_choice(prompt: str, choices: list[tuple[str, str]], default: int = 1) -> str:
+    """Prompt with a numbered list. Returns the key of the chosen entry.
+
+    choices is a list of (key, label).
+    """
+    print(f"  {prompt}")
+    for i, (key, label) in enumerate(choices, 1):
+        marker = accent(f"[{i}]") if i == default else dim(f"[{i}]")
+        print(f"    {marker} {label}")
+    while True:
+        raw = input(f"  Choice{_fmt_default(str(default))} ").strip() or str(default)
+        if raw.isdigit() and 1 <= int(raw) <= len(choices):
+            return choices[int(raw) - 1][0]
+        if raw in [k for k, _ in choices]:
+            return raw
+        err(f"Pick a number 1..{len(choices)}.")
+
+
+def ask_bool(prompt: str, default: bool) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    while True:
+        raw = input(f"  {prompt} [{suffix}] ").strip().lower()
+        if not raw:
+            return default
+        if raw in ("y", "yes", "1", "true"):
+            return True
+        if raw in ("n", "no", "0", "false"):
+            return False
+        err("Please answer yes or no.")
+
+
+# ---------------------------------------------------------------------------
+# Validators
+# ---------------------------------------------------------------------------
+
+_IP_RE = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$|^[0-9a-fA-F:]+$")
+
+
+def v_ip(value: str) -> tuple[bool, str]:
+    if not value:
+        return False, "IP is required."
+    if not _IP_RE.match(value):
+        return False, "Not a valid IPv4/IPv6 literal."
+    return True, ""
+
+
+def v_port(value: str) -> tuple[bool, str]:
+    if not value.isdigit() or not (1 <= int(value) <= 65535):
+        return False, "Port must be an integer 1..65535."
+    return True, ""
+
+
+def v_regex(value: str) -> tuple[bool, str]:
+    try:
+        re.compile(value)
+    except re.error as e:
+        return False, f"Invalid regex: {e}"
+    return True, ""
+
+
+def v_iso_datetime(value: str) -> tuple[bool, str]:
+    if not value:
+        return False, "Start time is required."
+    try:
+        # Accept full ISO-8601 with offset or Z.
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False, "Not ISO-8601 (e.g. 2025-05-18T13:00:00Z or 2025-05-18T13:00:00+02:00)."
+    return True, ""
+
+
+def v_positive_int(value: str) -> tuple[bool, str]:
+    if not value.isdigit() or int(value) <= 0:
+        return False, "Must be a positive integer."
+    return True, ""
+
+
+def v_ssh_dest(value: str) -> tuple[bool, str]:
+    if not value:
+        return True, ""  # optional
+    if not re.match(r"^[^@\s]+@[^:\s]+:.+$", value):
+        return False, "Expected user@host:/absolute/path"
+    return True, ""
+
+
+# ---------------------------------------------------------------------------
+# .env parsing + rendering
+# ---------------------------------------------------------------------------
+
+_ENV_LINE_RE = re.compile(r"^(?P<key>[A-Z_][A-Z0-9_]*)=(?P<value>.*)$")
+
+
+def parse_env_file(path: Path) -> dict[str, str]:
+    """Return VAR → value pairs from an .env-style file, stripping quotes."""
+    out: dict[str, str] = {}
+    if not path.is_file():
+        return out
+    for line in path.read_text().splitlines():
+        m = _ENV_LINE_RE.match(line)
+        if not m:
+            continue
+        val = m["value"].strip()
+        if len(val) >= 2 and val[0] == val[-1] and val[0] in ("\"", "'"):
+            val = val[1:-1]
+        out[m["key"]] = val
+    return out
+
+
+def _quote_if_needed(v: str) -> str:
+    if v == "":
+        return ""
+    if re.search(r"[\s#\"'$`\\]", v):
+        escaped = v.replace("\\", "\\\\").replace("\"", "\\\"")
+        return f"\"{escaped}\""
+    return v
+
+
+def render_env(template: str, values: dict[str, str], extra_existing: dict[str, str]) -> str:
+    """Render an .env by substituting known keys into the .env.example template.
+
+    Keys in `values` are written; keys already in `extra_existing` but not in
+    `values` and not in the template are appended at the end so pre-existing
+    custom knobs survive.
+    """
+    seen_keys: set[str] = set()
+    out_lines: list[str] = []
+    for line in template.splitlines():
+        m = _ENV_LINE_RE.match(line)
+        if m:
+            key = m["key"]
+            seen_keys.add(key)
+            if key in values:
+                out_lines.append(f"{key}={_quote_if_needed(values[key])}")
+            else:
+                out_lines.append(line)
+        else:
+            out_lines.append(line)
+
+    # Preserve unknown pre-existing keys that aren't in the template.
+    leftovers = {k: v for k, v in extra_existing.items() if k not in seen_keys}
+    if leftovers:
+        out_lines.append("")
+        out_lines.append("# --- Preserved from your previous .env ---------------------------------")
+        for k, v in leftovers.items():
+            out_lines.append(f"{k}={_quote_if_needed(v)}")
+
+    return "\n".join(out_lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# configurations.py rewriting
+# ---------------------------------------------------------------------------
+
+_CONFIG_HEADER = textwrap.dedent(
+    """\
+    #!/usr/bin/env python
+    # -*- coding: utf-8 -*-
+
+    # This file is part of Flower.
+    #
+    # Copyright ©2018 Nicolò Mazzucato
+    # Copyright ©2018 Antonio Groza
+    # Copyright ©2018 Brunello Simone
+    # Copyright ©2018 Alessio Marotta
+    # DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.
+    #
+    # Flower is free software: you can redistribute it and/or modify
+    # it under the terms of the GNU General Public License as published by
+    # the Free Software Foundation, either version 3 of the License, or
+    # (at your option) any later version.
+    #
+    # Flower is distributed in the hope that it will be useful,
+    # but WITHOUT ANY WARRANTY; without even the implied warranty of
+    # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    # GNU General Public License for more details.
+    #
+    # You should have received a copy of the GNU General Public License
+    # along with Flower.  If not, see <https://www.gnu.org/licenses/>.
+
+    import os
+    from pathlib import Path
+
+    traffic_dir = Path(os.getenv("IRIS_TRAFFIC_DIR", "/traffic"))
+    dump_pcaps_dir = Path(os.getenv("DUMP_PCAPS", "/traffic"))
+    tick_length = os.getenv("TICK_LENGTH", 2*60*1000)
+    flag_lifetime = os.getenv("FLAG_LIFETIME", 5)
+    start_date = os.getenv("TICK_START", "2018-06-27T13:00:00+02:00")
+    flag_regex = os.getenv("FLAG_REGEX", "[A-Z0-9]{31}=")
+    vm_ip = os.getenv("VM_IP", "10.10.3.1")
+    visualizer_url = os.getenv("VISUALIZER_URL", "http://127.0.0.1:1337")
+    """
+)
+
+
+@dataclass
+class Service:
+    ip: str
+    port: int
+    name: str
+
+
+def render_configurations_py(services: list[Service], fallback_ip: str) -> str:
+    lines: list[str] = []
+    for s in services:
+        lines.append(f"{s.ip}:{s.port} {s.name}")
+
+    rendered_services = "\n".join(
+        f'    {{"ip": {s.ip!r}, "port": {s.port}, "name": {s.name!r}}},' for s in services
+    )
+
+    out = _CONFIG_HEADER + "\n"
+    out += f"vm_ip_1 = {fallback_ip!r}\n"
+    out += "services = [\n"
+    out += rendered_services + "\n"
+    out += "]\n"
+    out += "services += [{\"ip\": vm_ip_1, \"port\": -1, \"name\": \"other\"}]\n"
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Flag regex presets (with the source competitions they typically match).
+# ---------------------------------------------------------------------------
+
+FLAG_PRESETS: list[tuple[str, str, str]] = [
+    ("faust",   r"FAUST_[A-Za-z0-9/+]{32}",     "FAUST-CTF"),
+    ("eno",     r"ENO[A-Za-z0-9+/]{48}=",       "ENOWARS / ENOcalypse"),
+    ("ecsc",    r"[A-Z0-9]{31}=",               "ECSC / ICC"),
+    ("rucctf",  r"\w{31}=",                     "RuCTF"),
+    ("custom",  "",                             "Type your own regex"),
+]
+
+
+TICK_LENGTH_PRESETS = [
+    ("60000",  "1 minute  (60 000 ms) -- fast A/D"),
+    ("120000", "2 minutes (120 000 ms)"),
+    ("180000", "3 minutes (180 000 ms) -- ECSC / Faust default"),
+    ("300000", "5 minutes (300 000 ms) -- slower games"),
+    ("custom", "Type your own value (in ms)"),
+]
+
+
+VALIDATOR_PRESETS = [
+    ("", "None -- don't validate flags in-band"),
+    ("faust", "FAUST validator"),
+    ("enowars", "ENOWARS validator"),
+    ("eno", "ENO validator (newer)"),
+    ("itad", "iTAD validator"),
+]
+
+
+DEPLOYMENT_PRESETS: list[tuple[str, str, str]] = [
+    ("all-in-one-ids",
+     "iris,suricata-ids",
+     "All-in-one, IDS -- full stack on this host, Suricata reads offline pcaps"),
+    ("all-in-one-ips",
+     "iris,suricata-ips",
+     "All-in-one, IPS -- full stack here, Suricata inline via NFQUEUE"),
+    ("split-iris",
+     "iris",
+     "Split -- Iris (DB/API/frontend) here, Suricata runs on the vulnbox"),
+    ("split-vulnbox",
+     "suricata-ips,vulnbox-agent",
+     "Split -- Suricata + rsync shipper here, Iris on a remote host"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Wizard screens
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WizardState:
+    env: dict[str, str] = field(default_factory=dict)
+    services: list[Service] = field(default_factory=list)
+    vm_ip_1: str = "10.60.2.1"
+    mode: str = "all-in-one-ids"
+    skip_services: bool = False
+
+    # Was the user running the wizard on an existing install?
+    had_existing_env: bool = False
+
+
+def screen_welcome(state: WizardState, existing: dict[str, str]) -> None:
+    banner()
+    print(dim("  Press Enter at any prompt to accept the highlighted default."))
+    print(dim("  You can re-run this wizard anytime -- existing values become the defaults.\n"))
+    if existing:
+        info(f"Detected existing .env with {len(existing)} keys. Loaded as defaults.")
+        state.had_existing_env = True
+
+
+def screen_mode(state: WizardState) -> None:
+    section("Deployment mode")
+    print("  Iris supports three deployment shapes. Pick the one that matches your CTF:")
+
+    # Derive a default from the existing COMPOSE_PROFILES if present.
+    current = state.env.get("COMPOSE_PROFILES", "")
+    default_idx = 1
+    for i, (_, profiles, _) in enumerate(DEPLOYMENT_PRESETS, 1):
+        if profiles == current:
+            default_idx = i
+            break
+
+    choice = ask_choice(
+        "",
+        [(k, f"{d}\n        {dim(f'COMPOSE_PROFILES={p}')}") for k, p, d in DEPLOYMENT_PRESETS],
+        default=default_idx,
+    )
+    state.mode = choice
+    profiles = dict((k, p) for k, p, _ in DEPLOYMENT_PRESETS)[choice]
+    state.env["COMPOSE_PROFILES"] = profiles
+
+    # Split-vulnbox mode doesn't run the Iris stack here -- skip the flow list /
+    # service / flag-validator screens.
+    state.skip_services = choice == "split-vulnbox"
+
+
+def screen_traffic(state: WizardState) -> None:
+    if state.skip_services:
+        return
+    section("Traffic source")
+    print("  Where do pcaps arrive from?")
+
+    current = state.env
+    has_rsync_default = not current.get("PCAP_OVER_IP") and not current.get("DUMP_PCAPS")
+    has_pcap_over_ip = bool(current.get("PCAP_OVER_IP"))
+    has_dump = bool(current.get("DUMP_PCAPS"))
+    default = 1 if has_rsync_default else (2 if has_pcap_over_ip else (3 if has_dump else 1))
+
+    choice = ask_choice(
+        "",
+        [
+            ("rsync", "rsync into a shared directory (default / README recipe)"),
+            ("pcap-over-ip", "PCAP-over-IP stream from a remote tcpdump server"),
+            ("dump", "Iris captures pcaps locally (DUMP_PCAPS)"),
+        ],
+        default=default,
+    )
+
+    state.env["TRAFFIC_DIR_HOST"] = ask(
+        "Host path to the pcap directory:",
+        default=state.env.get("TRAFFIC_DIR_HOST", "./services/test_pcap"),
+        required=True,
+    )
+    state.env["TRAFFIC_DIR_DOCKER"] = ask(
+        "In-container path:",
+        default=state.env.get("TRAFFIC_DIR_DOCKER", "/traffic"),
+        required=True,
+    )
+
+    if choice == "pcap-over-ip":
+        state.env["PCAP_OVER_IP"] = ask(
+            "PCAP-over-IP endpoint (host:port, comma-separated for multiple):",
+            default=state.env.get("PCAP_OVER_IP", "host.docker.internal:1337"),
+            required=True,
+        )
+        state.env["DUMP_PCAPS"] = ""
+    elif choice == "dump":
+        state.env["DUMP_PCAPS"] = ask(
+            "Directory Iris should dump pcaps into:",
+            default=state.env.get("DUMP_PCAPS", "/traffic"),
+            required=True,
+        )
+        state.env["DUMP_PCAPS_INTERVAL"] = ask(
+            "Rotation interval (e.g. 1m, 30s):",
+            default=state.env.get("DUMP_PCAPS_INTERVAL", "1m"),
+            required=True,
+        )
+        state.env["DUMP_PCAPS_FILENAME"] = ask(
+            "Filename template (Go time format):",
+            default=state.env.get("DUMP_PCAPS_FILENAME", "2006-01-02_15-04-05.pcap"),
+            required=True,
+        )
+        state.env["PCAP_OVER_IP"] = ""
+    else:
+        state.env["PCAP_OVER_IP"] = ""
+        state.env["DUMP_PCAPS"] = ""
+
+    bpf = ask(
+        "BPF filter (optional, e.g. 'port 8080'):",
+        default=state.env.get("BPF", ""),
+        allow_empty=True,
+    )
+    state.env["BPF"] = bpf
+
+
+def _default_tick_start() -> str:
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    return now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def screen_game(state: WizardState) -> None:
+    section("Game parameters")
+    cur_start = state.env.get("TICK_START", _default_tick_start())
+    state.env["TICK_START"] = ask(
+        "CTF start time (ISO-8601, e.g. 2025-05-18T13:00:00Z):",
+        default=cur_start,
+        validator=v_iso_datetime,
+        required=True,
+    )
+
+    cur_len = state.env.get("TICK_LENGTH", "180000")
+    default_idx = 1
+    for i, (v, _) in enumerate(TICK_LENGTH_PRESETS, 1):
+        if v == cur_len:
+            default_idx = i
+            break
+    tick_choice = ask_choice("Tick length:",
+                             [(v, label) for v, label in TICK_LENGTH_PRESETS],
+                             default=default_idx)
+    if tick_choice == "custom":
+        state.env["TICK_LENGTH"] = ask(
+            "Tick length (milliseconds):",
+            default=cur_len,
+            validator=v_positive_int,
+            required=True,
+        )
+    else:
+        state.env["TICK_LENGTH"] = tick_choice
+
+    # Flag regex presets
+    cur_regex = state.env.get("FLAG_REGEX", "[A-Z0-9]{31}=")
+    default_idx = len(FLAG_PRESETS)  # default to "custom" if nothing matches
+    for i, (_, pattern, _) in enumerate(FLAG_PRESETS, 1):
+        if pattern == cur_regex:
+            default_idx = i
+            break
+    flag_choice = ask_choice("Flag regex:",
+                             [(k, f"{label}  {dim(pat or '(type your own)')}")
+                              for k, pat, label in FLAG_PRESETS],
+                             default=default_idx)
+    if flag_choice == "custom":
+        state.env["FLAG_REGEX"] = ask(
+            "Flag regex:",
+            default=cur_regex,
+            validator=v_regex,
+            required=True,
+        )
+    else:
+        state.env["FLAG_REGEX"] = dict((k, p) for k, p, _ in FLAG_PRESETS)[flag_choice]
+
+    state.env["VM_IP"] = ask(
+        "Your team's vulnbox IP:",
+        default=state.env.get("VM_IP", "10.10.3.1"),
+        validator=v_ip,
+        required=True,
+    )
+    state.env["TEAM_ID"] = ask(
+        "Your team number / ID:",
+        default=state.env.get("TEAM_ID", "3"),
+        required=True,
+    )
+
+
+def _parse_existing_services(path: Path) -> tuple[list[Service], str]:
+    """Parse the current configurations.py. Returns (services, vm_ip_1)."""
+    services: list[Service] = []
+    vm_ip_1 = "10.60.2.1"
+    if not path.is_file():
+        return services, vm_ip_1
+    text = path.read_text()
+
+    m = re.search(r"vm_ip_1\s*=\s*[\"']([^\"']+)[\"']", text)
+    if m:
+        vm_ip_1 = m.group(1)
+
+    # Try the {"ip": .., "port": .., "name": ..} shape first.
+    for mm in re.finditer(
+        r"\{\s*['\"]ip['\"]:\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]port['\"]:\s*(-?\d+)\s*,\s*['\"]name['\"]:\s*['\"]([^'\"]+)['\"]\s*\}",
+        text,
+    ):
+        ip, port, name = mm.group(1), int(mm.group(2)), mm.group(3)
+        if name == "other":
+            continue  # skip the fallback row, we re-add it on write
+        services.append(Service(ip=ip, port=port, name=name))
+
+    if services:
+        return services, vm_ip_1
+
+    # Fall back to parsing the heredoc-style `helper = '''…'''` block.
+    m = re.search(r"helper\s*=\s*'''(.*?)'''", text, re.DOTALL)
+    if m:
+        for line in m.group(1).strip().splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            if len(parts) != 2:
+                continue
+            addr, name = parts
+            if ":" not in addr:
+                continue
+            ip, port = addr.rsplit(":", 1)
+            try:
+                services.append(Service(ip=ip, port=int(port), name=name))
+            except ValueError:
+                continue
+    return services, vm_ip_1
+
+
+def screen_services(state: WizardState, existing_services: list[Service], existing_vm_ip_1: str) -> None:
+    if state.skip_services:
+        return
+    section("Services (the ones you defend)")
+    print(dim("  These land in services/api/configurations.py and drive the service dropdown."))
+
+    state.services = list(existing_services)
+    state.vm_ip_1 = existing_vm_ip_1
+
+    if state.services:
+        info(f"{len(state.services)} service(s) already defined:")
+        for i, s in enumerate(state.services, 1):
+            print(f"    {dim(f'[{i}]')} {bold(s.name):<24} {s.ip}:{s.port}")
+        if ask_bool("Keep these as-is?", default=True):
+            pass
+        else:
+            state.services = []
+
+    while True:
+        if state.services:
+            print()
+            info(f"Current: {', '.join(f'{s.name}@{s.ip}:{s.port}' for s in state.services)}")
+        if not ask_bool("Add a service?", default=not state.services):
+            break
+        name = ask("Service name (e.g. BIOMarkt):", required=True).strip()
+        if not name:
+            continue
+        ip = ask("Service IP:", default=state.env.get("VM_IP", ""), validator=v_ip, required=True)
+        port = int(ask("Service port:", validator=v_port, required=True))
+        state.services.append(Service(ip=ip, port=port, name=name))
+
+    state.vm_ip_1 = ask(
+        "Fallback IP (used for the 'other' entry in the dropdown):",
+        default=state.vm_ip_1,
+        validator=v_ip,
+        required=True,
+    )
+
+
+def screen_suricata(state: WizardState) -> None:
+    section("Suricata")
+    state.env["SURICATA_DIR_HOST"] = ask(
+        "Directory to store Suricata rules/logs/etc (seeded on first run):",
+        default=state.env.get("SURICATA_DIR_HOST", "./suricata-runtime"),
+        required=True,
+    )
+    state.env["SURICATA_UPDATE_ENABLE"] = "1" if ask_bool(
+        "Pull ET-Open rules with `suricata-update` at container start?",
+        default=state.env.get("SURICATA_UPDATE_ENABLE", "0") == "1",
+    ) else "0"
+    state.env["EMIT_SID_TAGS"] = "1" if ask_bool(
+        "Emit per-signature `sid:N` tags in addition to `rule:<metadata-tag>`?",
+        default=state.env.get("EMIT_SID_TAGS", "1") == "1",
+    ) else "0"
+
+
+def screen_nfqueue(state: WizardState) -> None:
+    # Only relevant when Suricata runs IPS here.
+    if "suricata-ips" not in state.env.get("COMPOSE_PROFILES", ""):
+        return
+    section("NFQUEUE (IPS mode)")
+    warn("Inline IPS is Linux-only and needs root on the host. See README for safety notes.")
+
+    state.env["NFQUEUE_NUM"] = ask(
+        "NFQUEUE number:",
+        default=state.env.get("NFQUEUE_NUM", "0"),
+        validator=lambda v: (v.isdigit() and 0 <= int(v) <= 65535, "0..65535"),
+        required=True,
+    )
+    state.env["NFQUEUE_IFACE"] = ask(
+        "Interface to hook (empty = all):",
+        default=state.env.get("NFQUEUE_IFACE", ""),
+        allow_empty=True,
+    )
+    state.env["NFQUEUE_CHAINS"] = ask(
+        "iptables chains to jump from (comma-separated):",
+        default=state.env.get("NFQUEUE_CHAINS", "INPUT,FORWARD,DOCKER-USER"),
+        required=True,
+    )
+    state.env["NFQUEUE_IPV6"] = "1" if ask_bool(
+        "Also install the jump on ip6tables?",
+        default=state.env.get("NFQUEUE_IPV6", "1") == "1",
+    ) else "0"
+
+
+def screen_shipper(state: WizardState) -> None:
+    # Only relevant when the vulnbox-agent profile is active.
+    if "vulnbox-agent" not in state.env.get("COMPOSE_PROFILES", ""):
+        return
+    section("Split-mode shipper")
+    print(dim("  The shipper rsyncs pcaps and eve.json to the remote Iris host."))
+
+    state.env["VULNBOX_SSH_DEST"] = ask(
+        "rsync destination (user@host:/path):",
+        default=state.env.get("VULNBOX_SSH_DEST", ""),
+        validator=v_ssh_dest,
+        required=True,
+    )
+    state.env["VULNBOX_SSH_KEY"] = ask(
+        "Path to SSH private key (mounted read-only into the shipper):",
+        default=state.env.get("VULNBOX_SSH_KEY", "./vulnbox-agent/id_ed25519"),
+        required=True,
+    )
+    state.env["SHIP_INTERVAL"] = ask(
+        "Seconds between pushes:",
+        default=state.env.get("SHIP_INTERVAL", "30"),
+        validator=v_positive_int,
+        required=True,
+    )
+
+
+def screen_validator(state: WizardState) -> None:
+    if state.skip_services:
+        return
+    section("Flag validator (optional)")
+    print(dim("  Validates flags in-band so fake-flag detection works."))
+
+    cur = state.env.get("FLAG_VALIDATOR_TYPE", "")
+    default_idx = 1
+    for i, (k, _) in enumerate(VALIDATOR_PRESETS, 1):
+        if k == cur:
+            default_idx = i
+            break
+    chosen = ask_choice("Validator:",
+                        [(k, label) for k, label in VALIDATOR_PRESETS],
+                        default=default_idx)
+    state.env["FLAG_VALIDATOR_TYPE"] = chosen
+    if chosen:
+        state.env["FLAG_VALIDATOR_TEAM"] = ask(
+            "FLAG_VALIDATOR_TEAM (some validators need this):",
+            default=state.env.get("FLAG_VALIDATOR_TEAM", state.env.get("TEAM_ID", "42")),
+            required=True,
+        )
+
+
+def screen_flagids(state: WizardState) -> None:
+    if state.skip_services:
+        return
+    section("FlagID scraping (optional)")
+    enable = ask_bool(
+        "Scrape flag IDs from the gameserver?",
+        default=state.env.get("FLAGID_SCRAPE", "") == "1",
+    )
+    state.env["FLAGID_SCRAPE"] = "1" if enable else ""
+    if not enable:
+        return
+    state.env["FLAGID_ENDPOINT"] = ask(
+        "FlagID endpoint URL:",
+        default=state.env.get("FLAGID_ENDPOINT", "http://flagidendpoint:8000/flagids.json"),
+        required=True,
+    )
+    state.env["FLAGID_SCAN"] = "1" if ask_bool(
+        "Scan traffic for known flag IDs and tag matches?",
+        default=state.env.get("FLAGID_SCAN", "1") == "1",
+    ) else ""
+    state.env["FLAG_LIFETIME"] = ask(
+        "Flag lifetime in ticks (empty = fall back to TICK_LENGTH, -1 = no check):",
+        default=state.env.get("FLAG_LIFETIME", "5"),
+        allow_empty=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Preview + write
+# ---------------------------------------------------------------------------
+
+def _diff_preview(title: str, old: str, new: str) -> None:
+    print()
+    print(accent("── " + title + " " + "─" * max(0, 58 - len(title))))
+    if old == new:
+        info("No changes.")
+        return
+    old_lines = old.splitlines()
+    new_lines = new.splitlines()
+    import difflib
+    for line in difflib.unified_diff(old_lines, new_lines, lineterm="", n=2,
+                                     fromfile="current", tofile="new"):
+        if line.startswith("+") and not line.startswith("+++"):
+            print(green(line))
+        elif line.startswith("-") and not line.startswith("---"):
+            print(red(line))
+        elif line.startswith("@@"):
+            print(cyan(line))
+        else:
+            print(dim(line))
+
+
+def screen_preview_and_write(
+    state: WizardState,
+    env_path: Path,
+    env_example_path: Path,
+    configs_path: Path,
+    dry_run: bool,
+) -> int:
+    section("Preview")
+
+    template = env_example_path.read_text()
+    existing_values = parse_env_file(env_path)
+    new_env_text = render_env(template, state.env, existing_values)
+
+    old_env_text = env_path.read_text() if env_path.is_file() else ""
+    _diff_preview(f".env  ({env_path})", old_env_text, new_env_text)
+
+    if not state.skip_services:
+        new_configs_text = render_configurations_py(state.services, state.vm_ip_1)
+        old_configs_text = configs_path.read_text() if configs_path.is_file() else ""
+        _diff_preview(
+            f"services/api/configurations.py  ({configs_path})",
+            old_configs_text,
+            new_configs_text,
+        )
+    else:
+        new_configs_text = None
+
+    print()
+    if dry_run:
+        warn("--dry-run set; not writing anything.")
+        return 0
+    if not ask_bool("Write these files?", default=True):
+        warn("Aborted. No files were written.")
+        return 1
+
+    # Back up existing files before overwriting.
+    if env_path.is_file():
+        backup = env_path.with_suffix(env_path.suffix + ".bak")
+        shutil.copy2(env_path, backup)
+        info(f"Backed up previous .env to {backup}")
+    env_path.write_text(new_env_text)
+    info(f"Wrote {env_path}")
+
+    if new_configs_text is not None:
+        if configs_path.is_file():
+            backup = configs_path.with_suffix(configs_path.suffix + ".bak")
+            shutil.copy2(configs_path, backup)
+            info(f"Backed up previous configurations.py to {backup}")
+        configs_path.write_text(new_configs_text)
+        info(f"Wrote {configs_path}")
+
+    # Make sure the Suricata runtime dirs exist so the first docker compose up
+    # doesn't error on missing mount points.
+    suricata_dir = Path(state.env.get("SURICATA_DIR_HOST", "./suricata-runtime")).expanduser()
+    for sub in ("etc", "lib/rules", "log"):
+        (suricata_dir / sub).mkdir(parents=True, exist_ok=True)
+    info(f"Ensured {suricata_dir}/{{etc,lib/rules,log}} exist")
+
+    # Friendly next-step hint.
+    profiles = state.env.get("COMPOSE_PROFILES", "")
+    print()
+    print(green("Setup complete."))
+    if "vulnbox-agent" in profiles:
+        print(dim("  Remember to place the SSH key at " + state.env.get("VULNBOX_SSH_KEY", "")))
+    print("  Next:  " + bold(f"docker compose up -d --build"))
+    print(dim(f"         (COMPOSE_PROFILES={profiles})"))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        description="Iris setup wizard",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print what would change; do not write files.")
+    parser.add_argument("--no-color", action="store_true",
+                        help="Disable ANSI colour output.")
+    args = parser.parse_args(argv)
+
+    if args.no_color:
+        global _USE_COLOR
+        _USE_COLOR = False
+
+    repo_root = Path(__file__).resolve().parent
+    env_path = repo_root / ".env"
+    env_example_path = repo_root / ".env.example"
+    configs_path = repo_root / "services" / "api" / "configurations.py"
+
+    if not env_example_path.is_file():
+        err(f"Can't find {env_example_path}. Run this wizard from the Iris repo root.")
+        return 2
+
+    state = WizardState()
+    state.env = parse_env_file(env_path)
+    existing_services, existing_vm_ip_1 = _parse_existing_services(configs_path)
+
+    try:
+        screen_welcome(state, state.env.copy())
+        screen_mode(state)
+        screen_traffic(state)
+        screen_game(state)
+        screen_services(state, existing_services, existing_vm_ip_1)
+        screen_suricata(state)
+        screen_nfqueue(state)
+        screen_shipper(state)
+        screen_validator(state)
+        screen_flagids(state)
+        return screen_preview_and_write(state, env_path, env_example_path,
+                                        configs_path, args.dry_run)
+    except (KeyboardInterrupt, EOFError):
+        print()
+        warn("Aborted.")
+        return 130
+
+
+if __name__ == "__main__":
+    sys.exit(main())
