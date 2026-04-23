@@ -228,14 +228,15 @@ class Connection(psycopg.Connection):
         return list(sorted(flows, key=lambda f: f.rank))
 
     def flow_detail(self, id: uuid.UUID) -> FlowDetail | None:
+        # The WHERE on the primary key matches at most one row; the previous
+        # implementation's ORDER BY / LIMIT 2000 were no-ops that we now drop
+        # so the plan the optimizer picks stays obvious to reviewers.
         sql_query = """
             SELECT f.*, p.name AS pcap_name
             FROM flow AS f
             INNER JOIN pcap AS p
                 ON p.id = f.pcap_id
             WHERE f.id = %(id)s
-            ORDER BY id DESC
-            LIMIT 2000
         """
         with self.cursor(row_factory=class_row(FlowDetail)) as cursor:
             flow = cursor.execute(sql_query, {"id": id}).fetchone()

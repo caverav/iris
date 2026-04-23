@@ -104,6 +104,10 @@ def query():
             tags_include=[str(elem) for elem in query.get("tags_include", [])],
             tags_exclude=[str(elem) for elem in query.get("tags_exclude", [])],
             tag_intersection_and=query.get("tag_intersection_mode", "").lower() == "and",
+            # Clients may ask for a larger window of flows than the default
+            # 1000. Clamp to a ceiling so a rogue request can't OOM the API
+            # or trip the GiST trgm index's quadratic worst case.
+            limit=max(1, min(int(query.get("limit", 1000)), 5000)),
         )
     except re.error as error:
         return return_json_response(
