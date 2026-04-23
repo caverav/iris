@@ -2,18 +2,46 @@
 """
 Iris setup wizard.
 
-Interactive, stdlib-only CLI that walks you through the .env + services/api/
-configurations.py setup. Re-runnable: if an .env already exists its values
-become the wizard's defaults so you can tweak a single section without
-retyping everything.
+Interactive, stdlib-only CLI (Python 3.8+) that walks you through the two
+config files you would otherwise hand-edit to stand Iris up:
+
+    .env                                runtime configuration
+    services/api/configurations.py      service list surfaced in the UI
+
+Run from the repo root:
 
     ./iris-setup                 # run the wizard
     ./iris-setup --dry-run       # print what would change, write nothing
-    ./iris-setup --no-color      # plain output (for pipes / logs)
+    ./iris-setup --no-color      # plain ANSI-free output (pipes / CI logs)
+    ./iris-setup --help          # full option list
 
-Reads the shipping .env.example as the layout template, so the resulting
-.env keeps all the section comments and the order of keys. Unknown keys
-already in an existing .env are preserved verbatim.
+Screens (the wizard gates each one on your earlier answers, so a split-mode
+vulnbox install only sees the prompts that apply):
+
+    1. Deployment mode       all-in-one IDS | all-in-one IPS |
+                             split-iris      | split-vulnbox
+    2. Traffic source        rsync / pcap-over-ip / DUMP_PCAPS
+    3. Game parameters       tick start, tick length, flag regex,
+                             VM_IP, TEAM_ID
+    4. Services              add/edit/remove; parses legacy helper-string
+                             form in configurations.py when present
+    5. Suricata              runtime dir, suricata-update opt-in, sid-tag
+                             emission
+    6. NFQUEUE (IPS only)    queue, iface, chains, IPv6
+    7. Split-mode shipper    SSH dest, key, push interval
+    8. Flag validator        none/faust/enowars/eno/itad + team id
+    9. FlagID scraping       endpoint, scan, lifetime
+   10. Preview + write       coloured unified diff, confirm, .bak backup
+
+Re-runnable: the wizard parses the current .env and configurations.py first
+and uses those values as every prompt's default. Press Enter to keep what you
+have and only type values for fields that changed. The shipping .env.example
+is the layout template, so the rendered .env keeps its section comments and
+key order. Keys already in an existing .env that aren't in the template are
+preserved at the bottom under a "Preserved from your previous .env" heading.
+
+Safety: every overwrite leaves a timestamp-less .bak sibling (.env.bak /
+configurations.py.bak). Ctrl-C at any prompt aborts without touching disk.
 """
 
 from __future__ import annotations
@@ -878,13 +906,29 @@ def screen_preview_and_write(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Iris setup wizard",
+        prog="iris-setup",
+        description=(
+            "Iris setup wizard -- interactively generate .env and "
+            "services/api/configurations.py."
+        ),
+        epilog=(
+            "Screens: deployment mode -> traffic source -> game parameters -> "
+            "services -> Suricata -> NFQUEUE (IPS only) -> shipper (vulnbox "
+            "only) -> flag validator -> flagID scraping -> preview & write. "
+            "Re-runnable: the current config is parsed and offered as the "
+            "default at every prompt. Backups of overwritten files land next "
+            "to the originals with a .bak suffix."
+        ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--dry-run", action="store_true",
-                        help="Print what would change; do not write files.")
-    parser.add_argument("--no-color", action="store_true",
-                        help="Disable ANSI colour output.")
+    parser.add_argument(
+        "--dry-run", action="store_true",
+        help="Walk the prompts and render the new files, but do not write them.",
+    )
+    parser.add_argument(
+        "--no-color", action="store_true",
+        help="Disable ANSI colour output. Useful for piping into `less` or CI logs.",
+    )
     args = parser.parse_args(argv)
 
     if args.no_color:

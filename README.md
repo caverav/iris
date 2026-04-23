@@ -33,22 +33,68 @@ The quickest way is the interactive wizard:
 ./iris-setup
 ```
 
-It walks you through deployment mode, tick length, flag regex, services, Suricata,
-and split-mode SSH details, then writes `.env` and `services/api/configurations.py`
-for you. Re-running the wizard later picks up your previous answers as defaults,
-so you can tweak one section without redoing the rest.
+It is a single stdlib-only Python 3 script (3.8+); nothing to install, works on
+any Linux / macOS host. Run it from the repo root. At the end of the session it
+writes `.env` and `services/api/configurations.py` and leaves a `.bak` copy of
+each file it overwrites, so you can always fall back to the previous state.
+
+### What the wizard asks
+
+The prompts are gated by your earlier answers, so a vulnbox-only install
+doesn't get asked about the frontend, and an IDS install doesn't get asked
+about NFQUEUE. Full set:
+
+1. **Deployment mode** -- one of four profile combinations
+   (`all-in-one IDS`, `all-in-one IPS`, `split-iris`, `split-vulnbox`).
+   This drives which of the later sections are shown and fills `COMPOSE_PROFILES`.
+2. **Traffic source** (core modes only) -- pick between rsync into a shared
+   directory, PCAP-over-IP streaming, or local capture via `DUMP_PCAPS`. Sets
+   `TRAFFIC_DIR_HOST`, `TRAFFIC_DIR_DOCKER`, `PCAP_OVER_IP`, `DUMP_PCAPS*`, and
+   an optional `BPF` filter.
+3. **Game parameters** -- `TICK_START` (ISO-8601), tick length presets
+   (60 s / 120 s / 180 s / 300 s / custom), flag regex presets
+   (Faust / ENOWARS / ECSC / RuCTF / custom), `VM_IP`, `TEAM_ID`.
+4. **Services** -- walks you through adding the services you defend; the list
+   lands in `services/api/configurations.py` and drives the service dropdown
+   in the UI. If a previous list exists (including the legacy `helper='''ip:port name'''`
+   format) it's parsed and offered as the default.
+5. **Suricata** -- `SURICATA_DIR_HOST`, `SURICATA_UPDATE_ENABLE`, `EMIT_SID_TAGS`.
+6. **NFQUEUE** (IPS modes only) -- `NFQUEUE_NUM`, `NFQUEUE_IFACE`, `NFQUEUE_CHAINS`,
+   `NFQUEUE_IPV6`.
+7. **Split-mode shipper** (vulnbox mode only) -- `VULNBOX_SSH_DEST`,
+   `VULNBOX_SSH_KEY`, `SHIP_INTERVAL`.
+8. **Flag validator** (core modes only) -- none / faust / enowars / eno / itad,
+   plus `FLAG_VALIDATOR_TEAM` when a validator is picked.
+9. **FlagID scraping** (core modes only) -- `FLAGID_SCRAPE`, `FLAGID_ENDPOINT`,
+   `FLAGID_SCAN`, `FLAG_LIFETIME`.
+10. **Preview** -- a coloured unified diff of `.env` and (if relevant)
+    `services/api/configurations.py`. Press `y` to write, anything else to bail.
+
+### Flags
 
 ```
-./iris-setup --dry-run    # preview the diff, write nothing
-./iris-setup --no-color   # plain output for logs / pipes
+./iris-setup                 run the wizard (default)
+./iris-setup --dry-run       show the diff, skip the write step
+./iris-setup --no-color      disable ANSI colour (pipes, CI logs)
+./iris-setup --help          full option list
 ```
 
-If you prefer to edit by hand, the two files are:
+### Re-running
 
-- `.env` (copy `.env.example` first) for runtime config,
+The wizard is safe to re-run: it parses the current `.env` and
+`services/api/configurations.py` first, then uses those values as the
+highlighted default at every prompt. Hit `Enter` at any question to keep
+what you already had and only type values for the fields that changed.
+
+### Hand-editing
+
+If you want to skip the wizard, the two files are:
+
+- `.env` (copy from `.env.example` first) for runtime configuration,
 - `services/api/configurations.py` for the services list.
 
 You can edit either during the CTF and rebuild just the `api` service:
+
 ```
 docker compose up --build -d api
 ```
