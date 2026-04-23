@@ -67,9 +67,6 @@ export const Corrie = () => {
     setSearchParams(searchParams);
   };
 
-  const inactiveButtonClass = "bg-blue-100 text-gray-800 rounded-md px-2 py-1";
-  const activeButtonClass = `${inactiveButtonClass} ring-2 ring-gray-500`;
-
   const navigate = useNavigate();
   const onClickNavigate = useCallback(
     (loc: string) => navigate(loc, { replace: true }),
@@ -147,59 +144,51 @@ export const Corrie = () => {
     tickInfoData: { startTick, endTick, flagLifetime, unixTimeToTick, tickToUnixTime },
   };
 
+  const modes = [
+    ["time", "time"],
+    ["packets", "packets"],
+    ["volume", "volume"],
+    ["tags", "tags"],
+    ["flags", "flags"],
+    ["under-attack", "under attack"],
+  ] as const;
+
   return (
-    <div className="flex flex-col h-full">
-      <div className="text-sm bg-white border-b-gray-300 border-b shadow-md flex flex-col">
-        <div className="p-2 flex space-x-2" style={{ height: 50 }}>
-          <a className="text-center px-2 py-2">Correlation mode: </a>
-          <button
-            className={mode == "time" ? activeButtonClass : inactiveButtonClass}
-            onClick={() => setCorrelationMode("time")}
-          >
-            time
-          </button>
-          <button
-            className={
-              mode == "packets" ? activeButtonClass : inactiveButtonClass
-            }
-            onClick={() => setCorrelationMode("packets")}
-          >
-            packets
-          </button>
-          <button
-            className={mode == "volume" ? activeButtonClass : inactiveButtonClass}
-            onClick={() => setCorrelationMode("volume")}
-          >
-            volume
-          </button>
-          <button
-            className={mode == "tags" ? activeButtonClass : inactiveButtonClass}
-            onClick={() => setCorrelationMode("tags")}
-          >
-            tags
-          </button>
-          <button
-            className={mode == "flags" ? activeButtonClass : inactiveButtonClass}
-            onClick={() => setCorrelationMode("flags")}
-          >
-            flags
-          </button>
-          <button
-            className={mode == "under-attack" ? activeButtonClass : inactiveButtonClass}
-            onClick={() => setCorrelationMode("under-attack")}
-          >
-            under attack
-          </button>
-          <p className="text-left px-2 py-2">After clicking on a flow, press 'w' to scroll to it in flow list</p>
+    <>
+      <div className="graph-toolbar">
+        <span
+          style={{
+            fontSize: 10,
+            color: "var(--ink-faint)",
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+          }}
+        >
+          correlation
+        </span>
+        <div className="seg">
+          {modes.map(([id, label]) => (
+            <button
+              key={id}
+              className={mode === id ? "on" : ""}
+              onClick={() => setCorrelationMode(id)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 10, color: "var(--ink-faint)" }}>
+          click a flow · press <kbd className="kbd-inline">w</kbd> to scroll to it in the flow list
+        </span>
       </div>
-      <div className="flex-1 w-full overflow-hidden p-4">
+      <div className="graph-stage">
         {(mode == "packets" || mode == "time") && TimePacketGraph(graphProps)}
         {mode == "volume" && VolumeGraph(graphProps)}
         {(mode == "tags" || mode == "flags") && BarPerTickGraph(graphProps, mode)}
-        {(mode == "under-attack") && UnderAttackGraph(graphProps)}
+        {mode == "under-attack" && UnderAttackGraph(graphProps)}
       </div>
-    </div>
+    </>
   );
 };
 

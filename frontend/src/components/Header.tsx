@@ -1,13 +1,11 @@
-import { format, parse } from "date-fns";
 import { Suspense, useState } from "react";
-import { useHotkeys } from 'react-hotkeys-hook';
+import { useHotkeys } from "react-hotkeys-hook";
 import {
   Link,
   useParams,
   useSearchParams,
   useNavigate,
 } from "react-router-dom";
-import ReactDiffViewer from "react-diff-viewer";
 
 import {
   END_FILTER_KEY,
@@ -19,44 +17,43 @@ import {
   SERVICE_REFETCH_INTERVAL_MS,
   REPR_ID_KEY,
 } from "../const";
-import {
-  useGetFlowQuery,
-  useGetServicesQuery,
-} from "../api";
+import { useGetServicesQuery } from "../api";
 import { getTickStuff } from "../tick";
+import {
+  IconCmdK,
+  IconDiff,
+  IconGraph,
+  IconSearch,
+  TulipMark,
+} from "./icons";
 
-function ServiceSelection() {
-  const FILTER_KEY = SERVICE_FILTER_KEY;
+/* --- service selector -------------------------------------------------- */
 
-  // TODO add all, maybe user react-select
-
+function ServiceSelector() {
   const { data: services } = useGetServicesQuery(undefined, {
     pollingInterval: SERVICE_REFETCH_INTERVAL_MS,
   });
-
-  const service_select = [
-    {
-      ip: "",
-      port: 0,
-      name: "all",
-    },
+  const serviceList = [
+    { ip: "", port: 0, name: "all services" },
     ...(services || []),
   ];
-  let [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   return (
     <select
-      value={searchParams.get(FILTER_KEY) ?? ""}
+      className="num-input"
+      style={{ width: 140, textAlign: "left", paddingRight: 22 }}
+      value={searchParams.get(SERVICE_FILTER_KEY) ?? ""}
       onChange={(event) => {
-        let serviceFilter = event.target.value;
-        if (serviceFilter && serviceFilter != "all") {
-          searchParams.set(FILTER_KEY, serviceFilter);
+        const v = event.target.value;
+        if (v && v !== "all services") {
+          searchParams.set(SERVICE_FILTER_KEY, v);
         } else {
-          searchParams.delete(FILTER_KEY);
+          searchParams.delete(SERVICE_FILTER_KEY);
         }
         setSearchParams(searchParams);
       }}
     >
-      {service_select.map((service) => (
+      {serviceList.map((service) => (
         <option key={service.name} value={service.name}>
           {service.name}
         </option>
@@ -65,84 +62,100 @@ function ServiceSelection() {
   );
 }
 
-function TextSearch() {
-  const FILTER_KEY = TEXT_FILTER_KEY;
-  let [searchParams, setSearchParams] = useSearchParams();
-  useHotkeys('s', (e) => {
-    let el = document.getElementById('search') as HTMLInputElement;
+/* --- search (regex filter) --------------------------------------------- */
+
+function SearchBox({ onActivate }: { onActivate?: () => void }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  useHotkeys("s", (e) => {
+    const el = document.getElementById("search") as HTMLInputElement | null;
     el?.focus();
     el?.select();
-    e.preventDefault()
+    e.preventDefault();
   });
   return (
-    <div>
+    <div className="search" onClick={onActivate}>
+      <IconSearch size={12} />
       <input
         type="text"
-        placeholder="regex"
         id="search"
-        value={searchParams.get(FILTER_KEY) || ""}
+        placeholder="regex · type to filter flows"
+        value={searchParams.get(TEXT_FILTER_KEY) || ""}
         onChange={(event) => {
-          let textFilter = event.target.value;
-          if (textFilter) {
-            searchParams.set(FILTER_KEY, textFilter);
+          const v = event.target.value;
+          if (v) {
+            searchParams.set(TEXT_FILTER_KEY, v);
           } else {
-            searchParams.delete(FILTER_KEY);
+            searchParams.delete(TEXT_FILTER_KEY);
           }
           setSearchParams(searchParams);
         }}
-      ></input>
+      />
+      <span className="kbd">s</span>
     </div>
   );
 }
 
+/* --- tick range inputs -------------------------------------------------- */
 
-function StartDateSelection() {
-  let { startTickParam, setTimeParam } = getTickStuff();
+function TickRangeInputs() {
+  const { startTickParam, endTickParam, setTimeParam } = getTickStuff();
   return (
-    <div>
+    <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <span
+        style={{
+          fontSize: 9,
+          color: "var(--ink-faint)",
+          letterSpacing: "0.2em",
+          textTransform: "uppercase",
+          marginRight: 4,
+        }}
+      >
+        tick
+      </span>
       <input
-        className="w-20"
+        className="num-input"
         id="startdateselection"
         type="number"
         placeholder="from"
         value={startTickParam}
-        onChange={(event) => {
-          setTimeParam(event.target.value == "" ? null : parseInt(event.target.value), START_FILTER_KEY);
-        }}
-      ></input>
-    </div>
-  );
-}
-
-function EndDateSelection() {
-  let { endTickParam, setTimeParam } = getTickStuff();
-  return (
-    <div>
+        onChange={(e) =>
+          setTimeParam(
+            e.target.value === "" ? null : parseInt(e.target.value),
+            START_FILTER_KEY,
+          )
+        }
+      />
+      <span style={{ color: "var(--ink-faint)" }}>→</span>
       <input
-        className="w-20"
+        className="num-input"
         id="enddateselection"
         type="number"
         placeholder="to"
         value={endTickParam}
-        onChange={(event) => {
-          setTimeParam(event.target.value == "" ? null : parseInt(event.target.value), END_FILTER_KEY);
-        }}
-      ></input>
+        onChange={(e) =>
+          setTimeParam(
+            e.target.value === "" ? null : parseInt(e.target.value),
+            END_FILTER_KEY,
+          )
+        }
+      />
     </div>
   );
 }
 
+/* --- diff slot inputs + diff action ------------------------------------ */
+
 function FirstDiff() {
-  let params = useParams();
-  let [searchParams, setSearchParams] = useSearchParams();
+  const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [firstFlow, setFirstFlow] = useState<string>(
-    searchParams.get(FIRST_DIFF_KEY) ?? ""
+    searchParams.get(FIRST_DIFF_KEY) ?? "",
   );
 
   function setFirstDiffFlow() {
-    let textFilter = params.id;
-    let reprId = searchParams.get(REPR_ID_KEY);
-    let reprIdSlug = reprId ? `${textFilter}:${reprId}` : `${textFilter}`
+    const textFilter = params.id;
+    const reprId = searchParams.get(REPR_ID_KEY);
+    const reprIdSlug = reprId ? `${textFilter}:${reprId}` : `${textFilter}`;
     if (textFilter) {
       searchParams.set(FIRST_DIFF_KEY, reprIdSlug);
       setFirstFlow(reprIdSlug);
@@ -153,39 +166,38 @@ function FirstDiff() {
     setSearchParams(searchParams);
   }
 
-  useHotkeys("f", () => {
-    setFirstDiffFlow();
-  });
+  useHotkeys("f", () => setFirstDiffFlow());
 
   return (
     <input
       type="text"
-      className="md:w-72"
-      placeholder="First Diff ID"
+      className="num-input"
+      style={{ width: 150, textAlign: "left", paddingLeft: 8 }}
+      placeholder="first · F"
       readOnly
       value={firstFlow}
-      onClick={(event) => setFirstDiffFlow()}
+      onClick={() => setFirstDiffFlow()}
       onContextMenu={(event) => {
         searchParams.delete(FIRST_DIFF_KEY);
         setFirstFlow("");
         setSearchParams(searchParams);
         event.preventDefault();
       }}
-    ></input>
+    />
   );
 }
 
 function SecondDiff() {
-  let params = useParams();
-  let [searchParams, setSearchParams] = useSearchParams();
+  const params = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [secondFlow, setSecondFlow] = useState<string>(
-    searchParams.get(SECOND_DIFF_KEY) ?? ""
+    searchParams.get(SECOND_DIFF_KEY) ?? "",
   );
 
   function setSecondDiffFlow() {
-    let textFilter = params.id;
-    let reprId = searchParams.get(REPR_ID_KEY);
-    let reprIdSlug = reprId ? `${textFilter}:${reprId}` : `${textFilter}`
+    const textFilter = params.id;
+    const reprId = searchParams.get(REPR_ID_KEY);
+    const reprIdSlug = reprId ? `${textFilter}:${reprId}` : `${textFilter}`;
     if (textFilter) {
       searchParams.set(SECOND_DIFF_KEY, reprIdSlug);
       setSecondFlow(reprIdSlug);
@@ -196,126 +208,135 @@ function SecondDiff() {
     setSearchParams(searchParams);
   }
 
-  useHotkeys("e", () => {
-    setSecondDiffFlow();
-  });
+  useHotkeys("e", () => setSecondDiffFlow());
 
   return (
     <input
       type="text"
-      className="md:w-72"
-      placeholder="Second Flow ID"
+      className="num-input"
+      style={{ width: 150, textAlign: "left", paddingLeft: 8 }}
+      placeholder="second · E"
       readOnly
       value={secondFlow}
-      onClick={(event) => setSecondDiffFlow()}
+      onClick={() => setSecondDiffFlow()}
       onContextMenu={(event) => {
         searchParams.delete(SECOND_DIFF_KEY);
         setSecondFlow("");
         setSearchParams(searchParams);
         event.preventDefault();
       }}
-    ></input>
+    />
   );
 }
 
-function Diff() {
-  let params = useParams();
-
-  let [searchParams] = useSearchParams();
-
-  let navigate = useNavigate();
+function DiffButton() {
+  const params = useParams();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
 
   function navigateToDiff() {
     navigate(`/diff/${params.id ?? ""}?${searchParams}`, { replace: true });
   }
 
-  useHotkeys("d", () => {
-    navigateToDiff();
-  });
+  useHotkeys("d", () => navigateToDiff());
 
   return (
-    <button
-      className=" bg-amber-100 text-gray-800 rounded-md px-2 py-1"
-      onClick={() => {
-        navigateToDiff()
-      }}
-    >
-      Diff
+    <button className="ctl accent" onClick={navigateToDiff}>
+      <IconDiff size={12} />
+      <span>diff</span>
+      <kbd>d</kbd>
     </button>
   );
 }
 
-export function Header() {
-  let { currentTick, setToLastnTicks, setTimeParam } = getTickStuff();
-  let [searchParams] = useSearchParams();
+/* --- tick badge --------------------------------------------------------- */
 
-  let navigate = useNavigate();
+function TickBadge({ tick }: { tick: number }) {
+  return (
+    <div className="tick-badge" title="Current tick">
+      <span className="pulse" />
+      <div>
+        <small>current tick</small>
+        <b>{String(tick).padStart(4, "0")}</b>
+      </div>
+    </div>
+  );
+}
 
-  useHotkeys('g', () => navigate(`/corrie?${searchParams}`, { replace: true }))
-  useHotkeys('a', () => setToLastnTicks(5));
-  useHotkeys('c', () => {
-    (document.getElementById("startdateselection") as HTMLInputElement).value = "";
-    (document.getElementById("enddateselection") as HTMLInputElement).value = "";
+/* --- header shell ------------------------------------------------------- */
+
+interface HeaderProps {
+  onOpenPalette: () => void;
+}
+
+export function Header({ onOpenPalette }: HeaderProps) {
+  const { currentTick, setToLastnTicks, setTimeParam } = getTickStuff();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+
+  useHotkeys("g", () =>
+    navigate(`/corrie?${searchParams}`, { replace: true }),
+  );
+  useHotkeys("a", () => setToLastnTicks(5));
+  useHotkeys("c", () => {
+    const a = document.getElementById("startdateselection") as HTMLInputElement | null;
+    const b = document.getElementById("enddateselection") as HTMLInputElement | null;
+    if (a) a.value = "";
+    if (b) b.value = "";
     setTimeParam(null, START_FILTER_KEY);
     setTimeParam(null, END_FILTER_KEY);
   });
 
   return (
     <>
-      <Link to={`/?${searchParams}`}>
-        <div className="header-icon">🌷</div>
-      </Link>
-      <div>
-        <TextSearch></TextSearch>
-      </div>
-      <div>
-        <Suspense>
-          <ServiceSelection></ServiceSelection>
-        </Suspense>
-      </div>
-      <div>
-        <StartDateSelection></StartDateSelection>
-      </div>
-      <div>
-        <EndDateSelection></EndDateSelection>
-      </div>
-      <div>
-        <button
-          className=" bg-amber-100 text-gray-800 rounded-md px-2 py-1"
-          onClick={() => setToLastnTicks(5)}
-        >
-          Last 5 ticks
-        </button>
-      </div>
-      <Link to={`/corrie?${searchParams}`}>
-        <div className="bg-blue-100 text-gray-800 rounded-md px-2 py-1">
-          Graph view
+      <Link className="brand" to={`/?${searchParams}`} aria-label="Tulip home">
+        <TulipMark className="brand-mark" size={22} />
+        <div className="brand-name">
+          <b>tulip</b>
+          <small>a/d scope</small>
         </div>
       </Link>
-      <div className="ml-auto mr-4" style={{ display: "flex" }}>
-        <div className="mr-4">
-          <FirstDiff />
-        </div>
-        <div className="mr-4">
-          <SecondDiff />
-        </div>
-        <div className="mr-6">
-          <Suspense>
-            <Diff />
-          </Suspense>
-        </div>
-        <div
-          className="ml-auto"
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            alignContent: "center",
-            flexDirection: "column",
-          }}
-        >
-          Current: {currentTick}
-        </div>
-      </div>
+
+      <SearchBox />
+
+      <button type="button" className="ctl" onClick={onOpenPalette}>
+        <IconCmdK size={12} />
+        <span>command</span>
+        <kbd>⌘K</kbd>
+      </button>
+
+      <div className="sep" />
+
+      <Suspense>
+        <ServiceSelector />
+      </Suspense>
+
+      <TickRangeInputs />
+
+      <button className="ctl" onClick={() => setToLastnTicks(5)}>
+        last 5
+        <kbd>a</kbd>
+      </button>
+
+      <div className="sep" />
+
+      <Link className="ctl" to={`/corrie?${searchParams}`}>
+        <IconGraph size={12} />
+        <span>graph</span>
+        <kbd>g</kbd>
+      </Link>
+
+      <div style={{ flex: 1 }} />
+
+      <FirstDiff />
+      <SecondDiff />
+      <Suspense>
+        <DiffButton />
+      </Suspense>
+
+      <div className="sep" />
+
+      <TickBadge tick={currentTick} />
     </>
   );
 }

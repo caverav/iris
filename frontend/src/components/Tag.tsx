@@ -1,38 +1,33 @@
+/* Tulip tags.
+   The actual styling lives in index.css under .tag / .tag.v-* -- variants
+   (danger / warn / ok / info / acc / muted) are selected here and the CSS
+   handles dot-vs-chip rendering via the `html[data-tag-style]` attribute.
+   The enricher emits namespaced `rule:*` / `sid:*` tags which are muted
+   so they don't compete with high-signal tags like `blocked`. */
 import classNames from "classnames";
-import Color from "color";
 
-const computeColorFromString = (str: string) => {
-  const hue = Array.from(str).reduce(
-    (hash, char) => 0 | (31 * hash + char.charCodeAt(0)),
-    0
-  );
-  return Color(`hsl(${hue}, 100%, 50%)`).hex();
+type Variant = "danger" | "warn" | "ok" | "info" | "acc" | "muted";
+
+const variantMap: Record<string, Variant> = {
+  blocked: "danger",
+  enemy: "danger",
+  "flag-in": "warn",
+  "flag-out": "warn",
+  flag_in: "warn",
+  flag_out: "warn",
+  suricata: "info",
+  fishy: "info",
+  starred: "acc",
 };
 
-// Hardcode colors here
-const tagColorMap: Record<string, string> = {
-  fishy: "rgb(191, 219, 254)",
-  blocked: "rgb(220, 38, 38)", // red-600 -- attack stopped inline
-  suricata: "rgb(96, 165, 250)", // blue-400 -- generic rule hit
-  flag_out: "rgb(254, 204, 204)",
-  flag_in: "rgb(209, 213, 219)",
-};
-
-// Namespaced tags emitted by the enricher (rule:*, sid:*) are visually muted
-// so high-signal tags like `blocked` pop.
-const mutedPrefixes = ["rule:", "sid:"];
-
-export function tagToColor(tag: string) {
-  if (tagColorMap[tag]) {
-    return tagColorMap[tag];
-  }
-  for (const prefix of mutedPrefixes) {
-    if (tag.startsWith(prefix)) {
-      return "rgb(229, 231, 235)"; // gray-200
-    }
-  }
-  return computeColorFromString(tag);
+function resolveVariant(tag: string): Variant {
+  const direct = variantMap[tag];
+  if (direct) return direct;
+  if (tag.startsWith("rule:") || tag.startsWith("sid:")) return "muted";
+  if (tag.startsWith("flag")) return "warn";
+  return "muted";
 }
+
 interface TagProps {
   tag: string;
   color?: string;
@@ -40,32 +35,42 @@ interface TagProps {
   excluded?: boolean;
   onClick?: () => void;
 }
-export const Tag = ({ tag, color, disabled = false, excluded = false, onClick }: TagProps) => {
-  var tagBackgroundColor = disabled ? "#eee" : color ?? tagToColor(tag);
 
-  var tagTextColor = disabled
-    ? "#bbb"
-    : Color(tagBackgroundColor).isDark()
-      ? "#fff"
-      : "#000";
-
-
-  if (excluded) {
-    tagTextColor = "white";
-    tagBackgroundColor = "black";
-  }
+export const Tag = ({ tag, disabled = false, excluded = false, onClick }: TagProps) => {
+  const variant = resolveVariant(tag);
   return (
-    <div
-      onClick={onClick}
-      className={classNames("p-3 cursor-pointer rounded-md uppercase text-xs h-5 text-center flex items-center hover:opacity-90 transition-colors duration-250 text-ellipsis overflow-hidden whitespace-nowrap", {
-        "bg-gray-300": disabled,
+    <span
+      className={classNames("tag", `v-${variant}`, {
+        "is-off": disabled,
+        "is-excluded": excluded,
+        "is-on": !disabled && !excluded,
       })}
-      style={{
-        backgroundColor: tagBackgroundColor,
-        color: tagTextColor,
-      }}
+      title={tag}
+      onClick={onClick}
     >
-      <span  style={excluded ? { textDecoration: 'line-through' } : {}}>{tag}</span>
-    </div>
+      {tag}
+    </span>
   );
 };
+
+/* Returns an oklch color string usable by ApexCharts / inline styles. Kept
+   compatible with the old callsite in Corrie.tsx that expected a real color
+   value. Uses OKLCH so the hue stays in sync with the runtime accent. */
+export function tagToColor(tag: string): string {
+  const v = resolveVariant(tag);
+  switch (v) {
+    case "danger":
+      return "oklch(0.70 0.21 24)";
+    case "warn":
+      return "oklch(0.80 0.17 70)";
+    case "ok":
+      return "oklch(0.78 0.17 155)";
+    case "info":
+      return "oklch(0.78 0.15 220)";
+    case "acc":
+      return "oklch(0.72 0.22 326)";
+    case "muted":
+    default:
+      return "rgb(95 92 110)";
+  }
+}

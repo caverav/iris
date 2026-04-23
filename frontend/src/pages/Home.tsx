@@ -1,66 +1,102 @@
-const shortcutTableData = [
-  [
-    { key: 'j/k', action: 'Down/Up in FlowList' },
-    { key: 'h/l', action: 'Up/Down in Flow' },
-    { key: 's', action: 'Focus (s)earch bar' },
-    { key: 'esc', action: 'Unfocus search bar' },
-  ],
-  [
-    { key: 'a', action: 'L(a)st 5 ticks' },
-    { key: 'c', action: '(C)lear time selection' },
-    { key: 'r', action: '(R)efresh flows' },
-  ],
-  [
-    { key: 'd', action: '(D)iff view' },
-    { key: 'f', action: 'Load flow to (f)irst diff slot' },
-    { key: 'e', action: 'Load flow to s(e)cond diff slot' },
-    { key: 'g', action: '(G)raph view' },
-  ],
-  [
-    { key: 'w', action: 'Scroll to current flo(w) in flow list' },
-    { key: 'i/o', action: 'Toggle flag in/out filters' },
-    { key: 't', action: 'Toggle s(t)arred filters' },
-    { key: 'x', action: 'Star selected flow' },
-  ]
+import { Link, useSearchParams } from "react-router-dom";
+import { TulipMark, IconFlows, IconCmdK } from "../components/icons";
+
+/* Home landing: glowing tulip mark over a radial-gradient canvas, a small
+   set of shortcut-reference cards, and two CTAs that map to the two most
+   likely next actions (enter flows / open command palette). */
+
+const shortcutCards: Array<{ title: string; rows: Array<[string, string]> }> = [
+  {
+    title: "Navigate",
+    rows: [
+      ["j / k", "flow list ↓ / ↑"],
+      ["h / l", "flow ↑ / ↓"],
+      ["w", "scroll to current"],
+      ["s", "focus search"],
+      ["esc", "unfocus"],
+    ],
+  },
+  {
+    title: "Time",
+    rows: [
+      ["a", "last 5 ticks"],
+      ["c", "clear time"],
+      ["r", "refresh"],
+    ],
+  },
+  {
+    title: "Flows",
+    rows: [
+      ["x", "star flow"],
+      ["i / o", "flag in / out"],
+      ["t", "starred"],
+    ],
+  },
+  {
+    title: "Views",
+    rows: [
+      ["d", "diff"],
+      ["g", "graph"],
+      ["f / e", "diff slot 1 / 2"],
+      ["⌘ K", "command"],
+    ],
+  },
 ];
 
-const generateShortcutTable = (data: { key: string; action: string; }[][]) => {
+export function Home() {
+  const [searchParams] = useSearchParams();
+  const qs = searchParams.toString();
+
   return (
-        <div className="flex flex-row gap-4">
-          {data.map((table, tableIndex) => (
-            <table key={tableIndex} className="border-collapse border border-slate-500 table-auto">
-              <thead>
-                <tr>
-                  <th className="border border-slate-600 px-4">Key</th>
-                  <th className="border border-slate-600 px-4">Action</th>
-                </tr>
-              </thead>
-              <tbody>
-              {table.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {Object.entries(row).map((cell, cellIndex) => (
-                    <td className="border border-slate-700 px-4" key={cellIndex}>
-                      {cell[1]}
-                    </td>
-                  ))}
-                </tr>
+    <div className="home">
+      <div className="home-inner">
+        <div className="home-mark">
+          <TulipMark size={56} />
+        </div>
+        <h1>
+          welcome to <b>tulip</b>
+        </h1>
+        <div className="tagline">attack / defence · flow scope</div>
+
+        <div className="cta">
+          {/* No dedicated /flows route -- the root page IS the flow view when
+              a selection lands. Clicking "enter flows" wakes the FlowList
+              sidebar (already rendered by Shell on /) and leaves focus there. */}
+          <Link className="ctl accent" to={`/?${qs}`}>
+            <IconFlows size={12} /> enter flows
+          </Link>
+          <button
+            type="button"
+            className="ctl"
+            onClick={() => {
+              // Dispatch a synthetic keydown so Shell's ⌘K handler opens the
+              // palette without Home needing to know about the palette state.
+              const e = new KeyboardEvent("keydown", {
+                key: "k",
+                metaKey: true,
+                bubbles: true,
+              });
+              window.dispatchEvent(e);
+            }}
+          >
+            <IconCmdK size={12} /> command palette <kbd>⌘K</kbd>
+          </button>
+        </div>
+
+        <div className="shortcuts">
+          {shortcutCards.map(({ title, rows }) => (
+            <div className="sc-card" key={title}>
+              <h5>{title}</h5>
+              {rows.map(([k, a]) => (
+                <div className="sc" key={k}>
+                  <kbd>{k}</kbd>
+                  <span className="a">{a}</span>
+                </div>
               ))}
-              </tbody>
-            </table>
+            </div>
           ))}
         </div>
-  );
-};
-
-
-export function Home() {
-  return (
-    <div className="p-4 flex flex-col gap-4 justify-center items-center h-full opacity-40">
-      <span className="text-9xl">🌷</span>
-      <h1 className="text-5xl text-gray-600">Welcome to Tulip</h1>
-      <h1 className="text-2xl text-gray-500">Shortcut reference:</h1>
-      {generateShortcutTable(shortcutTableData)}
-      {/* <h1 className="text-3xl font-bold pt-2 pb-4"></h1> */}
+      </div>
     </div>
   );
 }
