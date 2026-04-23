@@ -47,7 +47,7 @@ export function Rail({ active }: { active: View }) {
           const cur = html.getAttribute("data-accent") || "magenta";
           const next = cur === "magenta" ? "cyan" : cur === "cyan" ? "amber" : cur === "amber" ? "green" : "magenta";
           html.setAttribute("data-accent", next);
-          localStorage.setItem("tulip.accent", next);
+          localStorage.setItem("iris.accent", next);
         }}
       >
         <IconSettings />

@@ -25,16 +25,25 @@ function base(props: IconProps, children: React.ReactNode, extra: Partial<React.
   );
 }
 
-/* The stylized tulip mark used for the brand. Three petals + stem + leaf. */
-export const TulipMark = ({ size = 22, className = "" }: { size?: number; className?: string }) =>
+/* The stylized iris mark used for the brand. Three upright standards
+   converging at the bloom centre, two drooping falls fanning outward,
+   a filled centre node, and a stem with a leaf. */
+export const IrisMark = ({ size = 22, className = "" }: { size?: number; className?: string }) =>
   base(
     { size, className },
     <g strokeWidth={1.4}>
-      <path d="M12 3 C 8.5 6, 7.5 9, 8 12 C 9 12.5, 11 12.5, 12 11.5" />
-      <path d="M12 3 C 15.5 6, 16.5 9, 16 12 C 15 12.5, 13 12.5, 12 11.5" />
-      <path d="M12 6 C 10.5 8.5, 10 10.5, 10.5 12 C 11 12.5, 13 12.5, 13.5 12 C 14 10.5, 13.5 8.5, 12 6 Z" />
-      <path d="M12 12 L 12 20" />
-      <path d="M12 16 C 14.5 15, 16 16, 16.5 18" />
+      {/* standards (upright petals) */}
+      <path d="M12 3 C 11 6, 10 8, 10 10" />
+      <path d="M12 3 L 12 10" />
+      <path d="M12 3 C 13 6, 14 8, 14 10" />
+      {/* falls (drooping petals) */}
+      <path d="M10 10 C 7 11, 5 13, 5 16 C 8 16, 10 14, 11 11" />
+      <path d="M14 10 C 17 11, 19 13, 19 16 C 16 16, 14 14, 13 11" />
+      {/* bloom centre */}
+      <circle cx="12" cy="10" r="0.8" fill="currentColor" stroke="none" />
+      {/* stem + leaf */}
+      <path d="M12 11 L 12 20" />
+      <path d="M12 17 C 14.5 16, 16 17, 16.5 19" />
     </g>,
   );
 

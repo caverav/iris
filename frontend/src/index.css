@@ -5,7 +5,7 @@
 @tailwind utilities;
 
 /* --------------------------------------------------------------------------
-   Tulip design tokens -- neon/synthwave on near-black.
+   Iris design tokens -- neon/synthwave on near-black.
    Values are mirrored into Tailwind via tailwind.config.js colors; new code
    should prefer the semantic tailwind classes (`bg-canvas`, `text-ink`,
    `border-line`, `text-accent`) over raw CSS variables in JSX.
@@ -29,7 +29,7 @@
   --ink-ghost:      #3a3744;
 
   /* Accent hue is switchable at runtime via html[data-accent="..."]. */
-  --acc-h:          326; /* magenta / tulip */
+  --acc-h:          326; /* magenta / iris bloom */
   --acc:            oklch(0.72 0.22 var(--acc-h));
   --acc-soft:       oklch(0.72 0.22 var(--acc-h) / 0.16);
   --acc-glow:       oklch(0.72 0.22 var(--acc-h) / 0.45);
@@ -55,16 +55,16 @@
 
   /* RGB aliases for Tailwind <alpha-value> slots. Mirrors of the hex values
      above. Keep these in sync if you tune the palette. */
-  --tulip-canvas:       10 10 12;     /* #0a0a0c */
-  --tulip-surface:      14 14 18;     /* #0e0e12 */
-  --tulip-elevated:     20 20 26;     /* #14141a */
-  --tulip-overlay:      27 27 35;     /* #1b1b23 */
-  --tulip-hairline:     34 34 44;     /* #22222c */
-  --tulip-line:         34 34 44;     /* #22222c */
-  --tulip-line-strong:  47 47 60;     /* #2f2f3c */
-  --tulip-ink:          232 230 240;  /* #e8e6f0 */
-  --tulip-ink-muted:    157 154 174;  /* #9d9aae */
-  --tulip-ink-faint:    95 92 110;    /* #5f5c6e */
+  --iris-canvas:       10 10 12;     /* #0a0a0c */
+  --iris-surface:      14 14 18;     /* #0e0e12 */
+  --iris-elevated:     20 20 26;     /* #14141a */
+  --iris-overlay:      27 27 35;     /* #1b1b23 */
+  --iris-hairline:     34 34 44;     /* #22222c */
+  --iris-line:         34 34 44;     /* #22222c */
+  --iris-line-strong:  47 47 60;     /* #2f2f3c */
+  --iris-ink:          232 230 240;  /* #e8e6f0 */
+  --iris-ink-muted:    157 154 174;  /* #9d9aae */
+  --iris-ink-faint:    95 92 110;    /* #5f5c6e */
 }
 
 /* Accent hue presets (Tweaks panel). */

@@ -1,4 +1,4 @@
-/* Tulip tags.
+/* Iris tags.
    The actual styling lives in index.css under .tag / .tag.v-* -- variants
    (danger / warn / ok / info / acc / muted) are selected here and the CSS
    handles dot-vs-chip rendering via the `html[data-tag-style]` attribute.

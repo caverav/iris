@@ -1,5 +1,5 @@
 /* --------------------------------------------------------------------------
-   Tulip shell layout.
+   Iris shell layout.
    Three rows: header (44px), main (flex 1), status bar (22px).
    Main row is its own grid of left rail + content columns which is managed
    by React (so FlowList / HomeView / GraphView / DiffView can rearrange).
@@ -151,9 +151,9 @@
   border-radius: 50%;
   background: var(--acc);
   box-shadow: 0 0 8px var(--acc-glow);
-  animation: tulip-pulse 2.1s ease-in-out infinite;
+  animation: iris-pulse 2.1s ease-in-out infinite;
 }
-@keyframes tulip-pulse {
+@keyframes iris-pulse {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%      { opacity: 0.35; transform: scale(0.7); }
 }

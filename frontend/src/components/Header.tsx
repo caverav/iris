@@ -24,7 +24,7 @@ import {
   IconDiff,
   IconGraph,
   IconSearch,
-  TulipMark,
+  IrisMark,
 } from "./icons";
 
 /* --- service selector -------------------------------------------------- */
@@ -289,10 +289,10 @@ export function Header({ onOpenPalette }: HeaderProps) {
 
   return (
     <>
-      <Link className="brand" to={`/?${searchParams}`} aria-label="Tulip home">
-        <TulipMark className="brand-mark" size={22} />
+      <Link className="brand" to={`/?${searchParams}`} aria-label="Iris home">
+        <IrisMark className="brand-mark" size={22} />
         <div className="brand-name">
-          <b>tulip</b>
+          <b>iris</b>
           <small>a/d scope</small>
         </div>
       </Link>

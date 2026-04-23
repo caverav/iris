@@ -259,7 +259,7 @@ function Message({ full_flow, flow, flow_item_index, delta_time, id }: FlowProps
             downloadBlob(
               Buffer.from(flow.b64, "base64"),
               "application/octet-stream",
-              `tulip-dl-${id}.dat`,
+              `iris-dl-${id}.dat`,
             );
           }}
         >
@@ -269,7 +269,7 @@ function Message({ full_flow, flow, flow_item_index, delta_time, id }: FlowProps
           <button
             className="mini-btn"
             title="Download body"
-            onClick={() => downloadBlob(flowBody[1], flowBody[0].toString(), `tulip-dl-${id}.dat`)}
+            onClick={() => downloadBlob(flowBody[1], flowBody[0].toString(), `iris-dl-${id}.dat`)}
           >
             body · dl
           </button>

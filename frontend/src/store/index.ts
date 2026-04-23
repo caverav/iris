@@ -3,17 +3,17 @@ import { setupListeners } from "@reduxjs/toolkit/query";
 import { useDispatch, useSelector } from "react-redux";
 import type { TypedUseSelectorHook } from "react-redux";
 
-import { tulipApi } from "../api";
+import { irisApi } from "../api";
 
 import filterReducer from "./filter";
 
 export const store = configureStore({
   reducer: {
-    [tulipApi.reducerPath]: tulipApi.reducer,
+    [irisApi.reducerPath]: irisApi.reducer,
     filter: filterReducer,
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware().concat(tulipApi.middleware),
+    getDefaultMiddleware().concat(irisApi.middleware),
 });
 
 setupListeners(store.dispatch);

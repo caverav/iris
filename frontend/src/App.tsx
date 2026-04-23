@@ -29,9 +29,9 @@ function useDarkMode() {
   useEffect(() => {
     document.documentElement.classList.add("dark");
     const read = (k: string, d: string) => localStorage.getItem(k) || d;
-    document.documentElement.setAttribute("data-accent", read("tulip.accent", "magenta"));
-    document.documentElement.setAttribute("data-density", read("tulip.density", "dense"));
-    document.documentElement.setAttribute("data-tag-style", read("tulip.tagStyle", "dot"));
+    document.documentElement.setAttribute("data-accent", read("iris.accent", "magenta"));
+    document.documentElement.setAttribute("data-density", read("iris.density", "dense"));
+    document.documentElement.setAttribute("data-tag-style", read("iris.tagStyle", "dot"));
   }, []);
 }
 
@@ -121,7 +121,7 @@ function Shell() {
   useHotkeys("esc", () => setPaletteOpen(false), { enableOnFormTags: true });
 
   return (
-    <div className="app" data-screen-label={`Tulip · ${view}`}>
+    <div className="app" data-screen-label={`Iris · ${view}`}>
       <div className="header-area">
         <div className="header">
           <Header onOpenPalette={() => setPaletteOpen(true)} />

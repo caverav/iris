@@ -1,5 +1,5 @@
 import { Link, useSearchParams } from "react-router-dom";
-import { TulipMark, IconFlows, IconCmdK } from "../components/icons";
+import { IrisMark, IconFlows, IconCmdK } from "../components/icons";
 
 /* Home landing: glowing tulip mark over a radial-gradient canvas, a small
    set of shortcut-reference cards, and two CTAs that map to the two most
@@ -51,10 +51,10 @@ export function Home() {
     <div className="home">
       <div className="home-inner">
         <div className="home-mark">
-          <TulipMark size={56} />
+          <IrisMark size={56} />
         </div>
         <h1>
-          welcome to <b>tulip</b>
+          welcome to <b>iris</b>
         </h1>
         <div className="tagline">attack / defence · flow scope</div>
 
