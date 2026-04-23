@@ -85,6 +85,15 @@ func TryConverter(converter string, entry *db.FlowEntry, flow []db.FlowItem) ([]
 
 	var streamChunks []ProcessedChunk
 	go func() {
+		// Recover so a panic in the IO/decode path surfaces as an error instead
+		// of silently wedging the goroutine and triggering the faked timeout
+		// below (which then restarts the subprocess for no reason).
+		defer func() {
+			if r := recover(); r != nil {
+				ch <- fmt.Errorf("converter goroutine panic: %v", r)
+			}
+		}()
+
 		if err := process.Encoder.Encode(RequestChunk{
 			Src_ip:   entry.Src_ip.String(),
 			Src_port: entry.Src_port,
@@ -101,8 +110,15 @@ func TryConverter(converter string, entry *db.FlowEntry, flow []db.FlowItem) ([]
 			return
 		}
 
-		if len(flow) != 0 {
-			streamChunks[len(streamChunks)].Time = flow[0].Time
+		// Anchor the first converted chunk to the parent flow's start time
+		// when the converter didn't set one. Previous code wrote to
+		// streamChunks[len(streamChunks)] which is out of bounds on every
+		// non-empty result -- so every converter call used to panic, fake a
+		// timeout via the outer select, and restart the subprocess.
+		if len(flow) != 0 && len(streamChunks) != 0 {
+			if streamChunks[0].Time.IsZero() {
+				streamChunks[0].Time = flow[0].Time
+			}
 		}
 
 		ch <- nil
