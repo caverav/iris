@@ -57,7 +57,7 @@ var flagValidatorTeam = flag.Int("flag-validator-team", -1, "Team ID used for fl
 var skipchecksum = flag.Bool("skipchecksum", false, "Do not check the TCP checksum")
 var http_session_tracking = flag.Bool("http-session-tracking", false, "Enable http session tracking.")
 var disableConverters = flag.Bool("disable-converters", false, "Disable converters in case they cause issues")
-var concurrentConverters = flag.Int("concurrent-converters", 2, "How many processes should be started per single converter")
+var concurrentConverters = flag.Int("concurrent-converters", 4, "How many processes should be started per single converter. Converters are CPU-bound Python subprocesses; 4 saturates most CTF boxes without starving the assembler.")
 var concurrentFlows = flag.Int("concurrent-flows", 0, "How many flows should be processed at the same time")
 
 var flushAfter = flag.String("flush-after", "30s", `(TCP) Connections which have buffered packets (they've gotten packets out of order and
@@ -273,6 +273,15 @@ func main() {
 		if *flag_regex == "" {
 			log.Print("WARNING; no flag regex found. No flag-in or flag-out tags will be applied.")
 		}
+	}
+
+	// Compile the regex up front so the TCP reassembler can scan in-flight
+	// bytes for flags before -max-flow-item-size truncation drops them.
+	// Without this, flagRegex stays nil until the first call to
+	// ApplyFlagTags (after reassembly completes) and flags buried past the
+	// per-flow cap are silently lost.
+	if *flag_regex != "" {
+		EnsureRegex(flag_regex)
 	}
 
 	if *pcap_over_ip == "" {

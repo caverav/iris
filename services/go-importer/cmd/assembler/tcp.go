@@ -119,6 +119,7 @@ func (t *TcpStream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Ass
 
 	data := sg.Fetch(length)
 	orig := length
+	origData := data
 
 	// Stay under the per-flow cap (see `-max-flow-item-size`). We have to
 	// compute the budget *before* mutating total_size so the accumulator
@@ -134,9 +135,24 @@ func (t *TcpStream) ReassembledSG(sg reassembly.ScatterGather, ac reassembly.Ass
 	t.total_size += length
 	data = data[:length]
 
+	// Flag recovery past the cap.
+	// If we're dropping bytes, scan the discarded tail for flag matches and
+	// splice just the matches back onto `data`. The surrounding payload is
+	// still gone, but the flag tag + value are preserved so the UI, the
+	// validator, and the Flags_Out counter all keep working even on flows
+	// larger than -max-flow-item-size. Cap may be exceeded by at most a few
+	// flag-length bytes per match; we accept that trade-off to avoid
+	// silently losing points.
+	if length < orig && flagRegex != nil {
+		for _, m := range flagRegex.FindAll(origData[length:], -1) {
+			data = append(data, '\n')
+			data = append(data, m...)
+		}
+	}
+
 	if length < orig && !t.truncated {
 		t.truncated = true
-		log.Printf("WARN: flow %s:%d -> %s:%d exceeded -max-flow-item-size (%d MiB); truncating (first dropped %d bytes on this segment). Raise the cap with -max-flow-item-size if you need the full payload.",
+		log.Printf("WARN: flow %s:%d -> %s:%d exceeded -max-flow-item-size (%d MiB); truncating (first dropped %d bytes on this segment). Flag regex matches from the dropped tail are recovered onto the stream; raise the cap with -max-flow-item-size if you need the full payload.",
 			t.net.Src(), t.src_port, t.net.Dst(), t.dst_port, *maxFlowItemSize, orig-length)
 	}
 
