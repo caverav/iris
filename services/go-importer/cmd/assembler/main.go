@@ -3,7 +3,6 @@ package main
 import (
 	"go-importer/internal/converters"
 	"go-importer/internal/pkg/db"
-	"io/ioutil"
 	"runtime"
 
 	"github.com/gammazero/workerpool"
@@ -467,6 +466,33 @@ func connectToPCAPOverIP(service *AssemblerService, pcapIP string) {
 	}
 }
 
+// waitForFileStable polls Size() until two consecutive checks agree (and the
+// file has non-zero size) or the deadline is reached. Replaces a hard-coded
+// 2 s sleep that missed late bytes on slow rsyncs and wasted wall time on
+// quick ones. The goal is just "probably fully written"; any remaining
+// partial-tail risk is handled downstream by gopacket treating a short read
+// as EOF.
+func waitForFileStable(path string, pollInterval time.Duration, maxWait time.Duration) {
+	deadline := time.Now().Add(maxWait)
+	var lastSize int64 = -1
+	for {
+		info, err := os.Stat(path)
+		if err != nil {
+			return
+		}
+		size := info.Size()
+		if size > 0 && size == lastSize {
+			return
+		}
+		if time.Now().After(deadline) {
+			log.Printf("WARN: %s still changing after %s, ingesting anyway", path, maxWait)
+			return
+		}
+		lastSize = size
+		time.Sleep(pollInterval)
+	}
+}
+
 func (service *AssemblerService) WatchDir(watch_dir string) {
 	stat, err := os.Stat(watch_dir)
 	if err != nil {
@@ -479,15 +505,15 @@ func (service *AssemblerService) WatchDir(watch_dir string) {
 
 	log.Println("Monitoring dir: ", watch_dir)
 
-	files, err := ioutil.ReadDir(watch_dir)
+	entries, err := os.ReadDir(watch_dir)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	for _, file := range files {
+	for _, entry := range entries {
 		// accepts files with prefixes that start with .pcap (.pcapng .pcap1 etc)
-		if strings.HasPrefix(filepath.Ext(file.Name()), ".pcap") {
-			service.HandlePcapUri(filepath.Join(watch_dir, file.Name())) //FIXME; this is a little clunky
+		if strings.HasPrefix(filepath.Ext(entry.Name()), ".pcap") {
+			service.HandlePcapUri(filepath.Join(watch_dir, entry.Name())) //FIXME; this is a little clunky
 		}
 	}
 
@@ -512,7 +538,11 @@ func (service *AssemblerService) WatchDir(watch_dir string) {
 					// accepts files with prefixes that start with .pcap (.pcapng .pcap1 etc)
 					if strings.HasPrefix(filepath.Ext(event.Name), ".pcap") {
 						log.Println("Found new file", event.Name, event.Op.String())
-						time.Sleep(2 * time.Second) // FIXME; bit of race here between file creation and writes.
+						// Wait until the writer is done appending -- rsync can
+						// take many seconds to land a large pcap, and a
+						// blind 2s sleep either missed late bytes or wasted
+						// time on small files.
+						waitForFileStable(event.Name, 200*time.Millisecond, 30*time.Second)
 						service.HandlePcapUri(event.Name)
 					}
 				}
