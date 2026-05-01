@@ -106,6 +106,13 @@ logging:
         enabled: yes
         filename: /var/log/suricata/suricata.log
 
+# Unix-domain control socket. The api container mounts this and uses
+# `suricatasc` to issue `reload-rules` after writing local.rules, so
+# rule changes take effect with no traffic gap (vs. a full restart).
+unix-command:
+  enabled: yes
+  filename: /run/suricata/suricata-command.socket
+
 # --- NFQUEUE (IPS) settings ---
 # Only used when Suricata is started with `-q <num>`.
 # fail-open: if Suricata dies, packets are accepted rather than dropped.

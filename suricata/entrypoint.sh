@@ -14,7 +14,7 @@ SEED_ETC_DIR="/seed/etc"
 RULES_DIR="/var/lib/suricata/rules"
 ETC_DIR="/etc/suricata"
 
-mkdir -p "$RULES_DIR" "$ETC_DIR"
+mkdir -p "$RULES_DIR" "$ETC_DIR" /run/suricata
 
 # Seed rules if none present. cp -n keeps user edits.
 if [ -d "$SEED_RULES_DIR" ]; then
