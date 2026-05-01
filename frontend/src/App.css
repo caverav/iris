@@ -1004,3 +1004,117 @@
 .cmdk-item.active .hint {
   color: var(--acc);
 }
+
+/* --- Settings page (Suricata rules editor) ---------------------------- */
+.settings {
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  overflow: auto;
+}
+.settings-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: 16px;
+}
+.settings-head h2 {
+  margin: 0;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+}
+.settings-path {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.settings-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.settings-dirty {
+  color: var(--acc);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+.settings-editor {
+  flex: 1;
+  min-height: 360px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  background: var(--bg-1);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 12px;
+  resize: vertical;
+}
+.settings-editor:focus { outline: 1px solid var(--acc); border-color: var(--acc); }
+.settings-out {
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 4px;
+  padding: 10px 12px;
+  background: var(--bg-1);
+}
+.settings-out.ok { border-left-color: oklch(0.72 0.18 150); }
+.settings-out.err { border-left-color: oklch(0.65 0.22 25); }
+.settings-out strong { display: block; margin-bottom: 6px; }
+.settings-out pre {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 11.5px;
+  color: var(--ink-muted);
+  max-height: 240px;
+  overflow: auto;
+}
+.settings-history { margin-top: 10px; }
+.settings-history h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.settings-history ul { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; }
+.settings-history li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--bg-1);
+  font-size: 12px;
+}
+.settings-history li .b { color: var(--ink-muted); }
+.settings-empty { color: var(--ink-muted); font-size: 12px; }
+.settings-creds {
+  max-width: 360px;
+  margin: 60px auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-1);
+}
+.settings-creds h3 { margin: 0 0 4px; font-weight: 500; }
+.settings-creds p { margin: 0 0 8px; color: var(--ink-muted); font-size: 12px; }
+.settings-creds label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.settings-creds input {
+  background: var(--bg-0);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 6px 8px;
+  font-family: inherit;
+}
+.settings-creds input:focus { outline: 1px solid var(--acc); border-color: var(--acc); }
+.settings-err { color: oklch(0.65 0.22 25); font-size: 12px; }

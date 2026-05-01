@@ -17,6 +17,7 @@ import { Home } from "./pages/Home";
 import { FlowList } from "./components/FlowList";
 import { FlowView } from "./pages/FlowView";
 import { DiffView } from "./pages/DiffView";
+import { Settings } from "./pages/Settings";
 import { Corrie } from "./components/Corrie";
 import { Rail } from "./components/Rail";
 import { StatusBar } from "./components/StatusBar";
@@ -70,6 +71,14 @@ function App() {
               </Suspense>
             }
           />
+          <Route
+            path="settings"
+            element={
+              <Suspense>
+                <Settings />
+              </Suspense>
+            }
+          />
         </Route>
         <Route path="*" element={<PageNotFound />} />
       </Routes>
@@ -89,16 +98,17 @@ function Shell() {
 
   // Which high-level view are we on? Used to highlight the rail + pick the
   // main-area grid template.
-  const view = useMemo<"home" | "flows" | "graph" | "diff">(() => {
+  const view = useMemo<"home" | "flows" | "graph" | "diff" | "settings">(() => {
     const p = location.pathname;
     if (p.startsWith("/corrie")) return "graph";
     if (p.startsWith("/diff")) return "diff";
+    if (p.startsWith("/settings")) return "settings";
     if (p.startsWith("/flow")) return "flows";
     return "home";
   }, [location.pathname]);
 
   // Show the FlowList only when the user is looking at flows (root or a
-  // selected flow). Home, graph, and diff take the full main column.
+  // selected flow). Home, graph, diff, and settings take the full main column.
   const showFlowList = view === "home" || view === "flows";
 
   // Main grid template: 48px rail + (360px list when visible) + 1fr content.

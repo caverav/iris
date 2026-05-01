@@ -9,7 +9,7 @@ import {
   IconSettings,
 } from "./icons";
 
-type View = "home" | "flows" | "graph" | "diff";
+type View = "home" | "flows" | "graph" | "diff" | "settings";
 
 export function Rail({ active }: { active: View }) {
   const [params] = useSearchParams();
@@ -36,22 +36,14 @@ export function Rail({ active }: { active: View }) {
         </Link>
       ))}
       <div className="rail-spacer" />
-      <button
-        type="button"
-        className="rail-btn"
+      <Link
+        to="/settings"
+        className={`rail-btn ${active === "settings" ? "is-active" : ""}`}
         title="Settings"
-        onClick={() => {
-          // Tweaks toggle is not wired in this build - hint to the user
-          // until the Tweaks panel is implemented.
-          const html = document.documentElement;
-          const cur = html.getAttribute("data-accent") || "magenta";
-          const next = cur === "magenta" ? "cyan" : cur === "cyan" ? "amber" : cur === "amber" ? "green" : "magenta";
-          html.setAttribute("data-accent", next);
-          localStorage.setItem("iris.accent", next);
-        }}
+        aria-label="Settings"
       >
         <IconSettings />
-      </button>
+      </Link>
     </div>
   );
 }
