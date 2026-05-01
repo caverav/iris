@@ -125,12 +125,14 @@ services:
     # - -http-session-tracking: enable HTTP session tracking
     # - -dir: directory to read traffic from
     # - -skipchecksum: skip checksum validation
-    # - -flush-after: i.e. 2m Not needed in pcap rotation mode
+    # - -flush-after: close idle TCP conns and persist their flow rows after
+    #   this duration. Required when Suricata-IPS drops mid-conversation
+    #   packets - otherwise the flow never closes and never surfaces.
     # - -disable-converters: disable converters
     # - -max-flow-item-size: per-flow cap in MiB (default 16). Large HTTP
     #   payloads are truncated above this; a WARN is logged on the first
     #   truncation per stream. Raise the flag if your CTF has big artifacts.
-    command: "./assembler -http-session-tracking -skipchecksum -disable-converters -dir ${TRAFFIC_DIR_DOCKER}"
+    command: "./assembler -http-session-tracking -skipchecksum -disable-converters -flush-after 30s -dir ${TRAFFIC_DIR_DOCKER}"
     environment:
       TIMESCALE: ${TIMESCALE}
       FLAG_REGEX: ${FLAG_REGEX}
@@ -185,6 +187,13 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    # Override the common volumes to mount the traffic dir rw, so Suricata's
+    # pcap-log output can drop rotating pcaps where the assembler reads them.
+    volumes:
+      - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:rw
+      - ${SURICATA_DIR_HOST}/log:/var/log/suricata
+      - ${SURICATA_DIR_HOST}/etc:/etc/suricata
+      - ${SURICATA_DIR_HOST}/lib:/var/lib/suricata
     depends_on:
       iptables-init:
         condition: service_completed_successfully
