@@ -502,6 +502,22 @@ func waitForFileStable(path string, pollInterval time.Duration, maxWait time.Dur
 	}
 }
 
+// isPcapName accepts the usual extensions (.pcap, .pcapng, .pcap1, ...) plus
+// rotated names where .pcap appears mid-string before a sequence/timestamp,
+// e.g. Suricata's "log.pcap.1777602514" or tcpdump's "-G" rotations.
+func isPcapName(name string) bool {
+	parts := strings.Split(filepath.Base(name), ".")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, p := range parts[1:] {
+		if strings.HasPrefix(p, "pcap") {
+			return true
+		}
+	}
+	return false
+}
+
 func (service *AssemblerService) WatchDir(watch_dir string) {
 	stat, err := os.Stat(watch_dir)
 	if err != nil {
@@ -520,8 +536,7 @@ func (service *AssemblerService) WatchDir(watch_dir string) {
 	}
 
 	for _, entry := range entries {
-		// accepts files with prefixes that start with .pcap (.pcapng .pcap1 etc)
-		if strings.HasPrefix(filepath.Ext(entry.Name()), ".pcap") {
+		if isPcapName(entry.Name()) {
 			service.HandlePcapUri(filepath.Join(watch_dir, entry.Name())) //FIXME; this is a little clunky
 		}
 	}
@@ -544,8 +559,7 @@ func (service *AssemblerService) WatchDir(watch_dir string) {
 					return
 				}
 				if event.Op&(fsnotify.Rename|fsnotify.Create|fsnotify.Write) != 0 {
-					// accepts files with prefixes that start with .pcap (.pcapng .pcap1 etc)
-					if strings.HasPrefix(filepath.Ext(event.Name), ".pcap") {
+					if isPcapName(event.Name) {
 						log.Println("Found new file", event.Name, event.Op.String())
 						// Wait until the writer is done appending - rsync can
 						// take many seconds to land a large pcap, and a
