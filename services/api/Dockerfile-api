@@ -1,5 +1,11 @@
 FROM python:3.10
 
+# `suricata -T -S <file>` is used by the Settings page to syntax-check
+# proposed rules before they're written to local.rules and reloaded.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends suricata \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY ./requirements.txt /app/requirements.txt
 
 WORKDIR /app

@@ -49,6 +49,7 @@ from flask import request
 
 from flow2pwn import flow2pwn
 import database, json_util
+import rules_admin
 
 application = Flask(__name__)
 CORS(application)
@@ -306,6 +307,70 @@ def downloadFile():
                 "Invalid 'file'", "'file' not found"
             )
         )
+
+# ---------------------------------------------------------------------------
+# Settings: Suricata local.rules editor (gated by IRIS_ADMIN_PASS basic auth)
+# ---------------------------------------------------------------------------
+
+@application.route("/admin/rules", methods=["GET"])
+@rules_admin.require_admin
+def admin_rules_get():
+    return return_json_response(
+        {"path": str(rules_admin.RULES_PATH), "content": rules_admin.read_rules()}
+    )
+
+
+@application.route("/admin/rules/validate", methods=["POST"])
+@rules_admin.require_admin
+def admin_rules_validate():
+    body = request.get_json(silent=True) or {}
+    res = rules_admin.validate_rules(body.get("content", ""))
+    return return_json_response({"ok": res.ok, "output": res.output})
+
+
+@application.route("/admin/rules/apply", methods=["POST"])
+@rules_admin.require_admin
+def admin_rules_apply():
+    body = request.get_json(silent=True) or {}
+    content = body.get("content", "")
+
+    # Always validate before persisting; refuse to write known-bad rules
+    # so a future Suricata restart does not fail to start.
+    val = rules_admin.validate_rules(content)
+    if not val.ok:
+        return return_json_response(
+            {"ok": False, "stage": "validate", "output": val.output},
+            status=400,
+        )
+
+    rules_admin.write_rules(content)
+    reload = rules_admin.reload_rules()
+    return return_json_response(
+        {
+            "ok": reload.ok,
+            "stage": "reload",
+            "output": reload.message,
+            "validate_output": val.output,
+        }
+    )
+
+
+@application.route("/admin/rules/history", methods=["GET"])
+@rules_admin.require_admin
+def admin_rules_history():
+    return return_json_response(
+        {"entries": [dataclasses.asdict(e) for e in rules_admin.list_history()]}
+    )
+
+
+@application.route("/admin/rules/history/<name>", methods=["GET"])
+@rules_admin.require_admin
+def admin_rules_history_one(name):
+    body = rules_admin.read_history(name)
+    if body is None:
+        return return_text_response("not found", status=404)
+    return return_json_response({"name": name, "content": body})
+
 
 def create_app():
     db.open()
