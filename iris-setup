@@ -483,9 +483,24 @@ def screen_traffic(state: WizardState) -> None:
         default=default,
     )
 
+    # Demo pcaps live at services/test_pcap and are useful for first-time
+    # demos but pointless on a real CTF deployment. Offer a clean default.
+    current_dir = state.env.get("TRAFFIC_DIR_HOST", "")
+    has_demos_default = (current_dir == "" or "test_pcap" in current_dir)
+    include_demos = ask_choice(
+        "Include the demo pcaps shipped at services/test_pcap?",
+        [
+            ("yes", "yes - handy for kicking the tyres on first install"),
+            ("no",  "no  - create an empty ./traffic for live captures only"),
+        ],
+        default=1 if has_demos_default else 2,
+    )
+    default_traffic_dir = (
+        "./services/test_pcap" if include_demos == "yes" else "./traffic"
+    )
     state.env["TRAFFIC_DIR_HOST"] = ask(
         "Host path to the pcap directory:",
-        default=state.env.get("TRAFFIC_DIR_HOST", "./services/test_pcap"),
+        default=state.env.get("TRAFFIC_DIR_HOST", default_traffic_dir),
         required=True,
     )
     state.env["TRAFFIC_DIR_DOCKER"] = ask(
@@ -888,6 +903,10 @@ def screen_preview_and_write(
     for sub in ("etc", "lib/rules", "log"):
         (suricata_dir / sub).mkdir(parents=True, exist_ok=True)
     info(f"Ensured {suricata_dir}/{{etc,lib/rules,log}} exist")
+
+    traffic_dir = Path(state.env.get("TRAFFIC_DIR_HOST", "./traffic")).expanduser()
+    traffic_dir.mkdir(parents=True, exist_ok=True)
+    info(f"Ensured {traffic_dir} exists")
 
     # Friendly next-step hint.
     profiles = state.env.get("COMPOSE_PROFILES", "")
