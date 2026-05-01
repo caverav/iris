@@ -10,8 +10,8 @@ const shortcutCards: Array<{ title: string; rows: Array<[string, string]> }> = [
   {
     title: "Navigate",
     rows: [
-      ["j / k", "flow list ↓ / ↑"],
-      ["h / l", "flow ↑ / ↓"],
+      ["j / k", "flow list v / ^"],
+      ["h / l", "flow ^ / v"],
       ["w", "scroll to current"],
       ["s", "focus search"],
       ["esc", "unfocus"],
@@ -57,10 +57,10 @@ export function Home() {
         <h1>
           welcome to <b>iris</b>
         </h1>
-        <div className="tagline">attack / defence · flow scope</div>
+        <div className="tagline">attack / defence . flow scope</div>
 
         <div className="cta">
-          {/* No dedicated /flows route -- the root page IS the flow view when
+          {/* No dedicated /flows route - the root page IS the flow view when
               a selection lands. Clicking "enter flows" wakes the FlowList
               sidebar (already rendered by Shell on /) and leaves focus there. */}
           <Link className="ctl accent" to={`/?${qs}`}>

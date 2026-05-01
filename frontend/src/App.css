@@ -797,7 +797,7 @@
   background: color-mix(in oklab, var(--danger) 10%, transparent);
   color: var(--ink);
 }
-.diff-line.del::before { color: var(--danger); content: "−"; left: 16px; }
+.diff-line.del::before { color: var(--danger); content: "-"; left: 16px; }
 
 /* --------------------------------------------------------------------------
    Home

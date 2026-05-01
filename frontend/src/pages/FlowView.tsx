@@ -249,7 +249,7 @@ function Message({ full_flow, flow, flow_item_index, delta_time, id }: FlowProps
               );
             }}
           >
-            body · CC
+            body . CC
           </button>
         )}
         <button
@@ -271,7 +271,7 @@ function Message({ full_flow, flow, flow_item_index, delta_time, id }: FlowProps
             title="Download body"
             onClick={() => downloadBlob(flowBody[1], flowBody[0].toString(), `iris-dl-${id}.dat`)}
           >
-            body · dl
+            body . dl
           </button>
         )}
       </div>
@@ -302,7 +302,7 @@ function FlowOverview({ flow }: { flow: FullFlow }) {
       {hasSignatures && (
         <div className={classNames("ov-group", anyBlocked ? "is-danger" : "is-info")}>
           <h4>
-            <IconShield size={11} /> suricata · {flow.signatures.length} signature
+            <IconShield size={11} /> suricata . {flow.signatures.length} signature
             {flow.signatures.length === 1 ? "" : "s"} matched
           </h4>
           {flow.signatures.map((sig, idx) => (
@@ -411,7 +411,7 @@ function FlowOverview({ flow }: { flow: FullFlow }) {
         <span className="v mono">
           {formatIP(flow.src_ip)}:{flow.src_port} {">"} {formatIP(flow.dst_ip)}:{flow.dst_port}
           <span style={{ color: "var(--ink-faint)", marginLeft: 8 }}>
-            · {flow.duration}ms
+            . {flow.duration}ms
           </span>
         </span>
       </div>
@@ -602,7 +602,7 @@ export function FlowView() {
   if (isLoading || flow === undefined) {
     return (
       <div className="detail-body" style={{ padding: 24, color: "var(--ink-muted)" }}>
-        Loading…
+        Loading...
       </div>
     );
   }

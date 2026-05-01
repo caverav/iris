@@ -71,7 +71,7 @@ def _c(code: str, text: str) -> str:
 
 def dim(s: str) -> str:      return _c("2", s)
 def bold(s: str) -> str:     return _c("1", s)
-def accent(s: str) -> str:   return _c("1;38;5;205", s)   # magenta/pink -- iris
+def accent(s: str) -> str:   return _c("1;38;5;205", s)   # magenta/pink - iris
 def cyan(s: str) -> str:     return _c("38;5;117", s)
 def green(s: str) -> str:    return _c("38;5;114", s)
 def yellow(s: str) -> str:   return _c("38;5;221", s)
@@ -97,11 +97,11 @@ def banner() -> None:
 
 def section(title: str) -> None:
     print()
-    print(accent("── " + title + " " + "─" * max(0, 58 - len(title))))
+    print(accent("-- " + title + " " + "-" * max(0, 58 - len(title))))
 
 
 def info(msg: str) -> None:
-    print(cyan("› ") + msg)
+    print(cyan("> ") + msg)
 
 
 def warn(msg: str) -> None:
@@ -109,7 +109,7 @@ def warn(msg: str) -> None:
 
 
 def err(msg: str) -> None:
-    print(red("✗ ") + msg, file=sys.stderr)
+    print(red("x ") + msg, file=sys.stderr)
 
 
 # ---------------------------------------------------------------------------
@@ -377,16 +377,16 @@ FLAG_PRESETS: list[tuple[str, str, str]] = [
 
 
 TICK_LENGTH_PRESETS = [
-    ("60000",  "1 minute  (60 000 ms) -- fast A/D"),
+    ("60000",  "1 minute  (60 000 ms) - fast A/D"),
     ("120000", "2 minutes (120 000 ms)"),
-    ("180000", "3 minutes (180 000 ms) -- ECSC / Faust default"),
-    ("300000", "5 minutes (300 000 ms) -- slower games"),
+    ("180000", "3 minutes (180 000 ms) - ECSC / Faust default"),
+    ("300000", "5 minutes (300 000 ms) - slower games"),
     ("custom", "Type your own value (in ms)"),
 ]
 
 
 VALIDATOR_PRESETS = [
-    ("", "None -- don't validate flags in-band"),
+    ("", "None - don't validate flags in-band"),
     ("faust", "FAUST validator"),
     ("enowars", "ENOWARS validator"),
     ("eno", "ENO validator (newer)"),
@@ -397,16 +397,16 @@ VALIDATOR_PRESETS = [
 DEPLOYMENT_PRESETS: list[tuple[str, str, str]] = [
     ("all-in-one-ids",
      "iris,suricata-ids",
-     "All-in-one, IDS -- full stack on this host, Suricata reads offline pcaps"),
+     "All-in-one, IDS - full stack on this host, Suricata reads offline pcaps"),
     ("all-in-one-ips",
      "iris,suricata-ips",
-     "All-in-one, IPS -- full stack here, Suricata inline via NFQUEUE"),
+     "All-in-one, IPS - full stack here, Suricata inline via NFQUEUE"),
     ("split-iris",
      "iris",
-     "Split -- Iris (DB/API/frontend) here, Suricata runs on the vulnbox"),
+     "Split - Iris (DB/API/frontend) here, Suricata runs on the vulnbox"),
     ("split-vulnbox",
      "suricata-ips,vulnbox-agent",
-     "Split -- Suricata + rsync shipper here, Iris on a remote host"),
+     "Split - Suricata + rsync shipper here, Iris on a remote host"),
 ]
 
 
@@ -429,7 +429,7 @@ class WizardState:
 def screen_welcome(state: WizardState, existing: dict[str, str]) -> None:
     banner()
     print(dim("  Press Enter at any prompt to accept the highlighted default."))
-    print(dim("  You can re-run this wizard anytime -- existing values become the defaults.\n"))
+    print(dim("  You can re-run this wizard anytime - existing values become the defaults.\n"))
     if existing:
         info(f"Detected existing .env with {len(existing)} keys. Loaded as defaults.")
         state.had_existing_env = True
@@ -456,7 +456,7 @@ def screen_mode(state: WizardState) -> None:
     profiles = dict((k, p) for k, p, _ in DEPLOYMENT_PRESETS)[choice]
     state.env["COMPOSE_PROFILES"] = profiles
 
-    # Split-vulnbox mode doesn't run the Iris stack here -- skip the flow list /
+    # Split-vulnbox mode doesn't run the Iris stack here - skip the flow list /
     # service / flag-validator screens.
     state.skip_services = choice == "split-vulnbox"
 
@@ -623,7 +623,7 @@ def _parse_existing_services(path: Path) -> tuple[list[Service], str]:
     if services:
         return services, vm_ip_1
 
-    # Fall back to parsing the heredoc-style `helper = '''…'''` block.
+    # Fall back to parsing the heredoc-style `helper = '''...'''` block.
     m = re.search(r"helper\s*=\s*'''(.*?)'''", text, re.DOTALL)
     if m:
         for line in m.group(1).strip().splitlines():
@@ -812,7 +812,7 @@ def screen_flagids(state: WizardState) -> None:
 
 def _diff_preview(title: str, old: str, new: str) -> None:
     print()
-    print(accent("── " + title + " " + "─" * max(0, 58 - len(title))))
+    print(accent("-- " + title + " " + "-" * max(0, 58 - len(title))))
     if old == new:
         info("No changes.")
         return
@@ -908,7 +908,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="iris-setup",
         description=(
-            "Iris setup wizard -- interactively generate .env and "
+            "Iris setup wizard - interactively generate .env and "
             "services/api/configurations.py."
         ),
         epilog=(

@@ -79,7 +79,7 @@ function SearchBox({ onActivate }: { onActivate?: () => void }) {
       <input
         type="text"
         id="search"
-        placeholder="regex · type to filter flows"
+        placeholder="regex . type to filter flows"
         value={searchParams.get(TEXT_FILTER_KEY) || ""}
         onChange={(event) => {
           const v = event.target.value;
@@ -174,7 +174,7 @@ function FirstDiff() {
       type="text"
       className="num-input"
       style={{ width: 150, textAlign: "left", paddingLeft: 8 }}
-      placeholder="first · F"
+      placeholder="first . F"
       readOnly
       value={firstFlow}
       onClick={() => setFirstDiffFlow()}
@@ -216,7 +216,7 @@ function SecondDiff() {
       type="text"
       className="num-input"
       style={{ width: 150, textAlign: "left", paddingLeft: 8 }}
-      placeholder="second · E"
+      placeholder="second . E"
       readOnly
       value={secondFlow}
       onClick={() => setSecondDiffFlow()}

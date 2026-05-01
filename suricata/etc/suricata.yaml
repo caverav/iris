@@ -59,8 +59,8 @@ outputs:
       enabled: yes
       filetype: regular
       filename: eve.json
-      # Append-only; the enricher ratchets over this file.
-      rotate-interval: 0
+      # Append-only; the enricher ratchets over this file. Rotation is
+      # disabled by omitting `rotate-interval` (Suricata 7 rejects `0`).
       pcap-file: false
       community-id: false
       types:
@@ -81,6 +81,21 @@ outputs:
 
   - stats:
       enabled: no
+
+  # Rotating pcap dump of every packet Suricata sees on NFQUEUE. Written into
+  # the iris traffic dir so the assembler picks it up and the UI shows flows
+  # alongside the alerts/drops the enricher attaches from eve.json. Tune
+  # `limit` and `max-files` to your disk budget.
+  - pcap-log:
+      enabled: yes
+      filename: log.pcap
+      filetype: regular
+      limit: 100mb
+      max-files: 20
+      mode: normal
+      use-stream-depth: no
+      honor-pass-rules: no
+      dir: /traffic
 
 logging:
   default-log-level: notice

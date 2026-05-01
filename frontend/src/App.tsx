@@ -77,8 +77,8 @@ function App() {
   );
 }
 
-/* The Shell renders the global chrome -- header, left rail, status bar,
-   command palette -- and slots view-specific content into the main area.
+/* The Shell renders the global chrome - header, left rail, status bar,
+   command palette - and slots view-specific content into the main area.
    The FlowList lives next to the flow detail view only when a route that
    "owns" the flow list is active (root and /flow/:id). */
 function Shell() {
@@ -121,7 +121,7 @@ function Shell() {
   useHotkeys("esc", () => setPaletteOpen(false), { enableOnFormTags: true });
 
   return (
-    <div className="app" data-screen-label={`Iris · ${view}`}>
+    <div className="app" data-screen-label={`Iris . ${view}`}>
       <div className="header-area">
         <div className="header">
           <Header onOpenPalette={() => setPaletteOpen(true)} />

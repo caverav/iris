@@ -113,7 +113,7 @@ func TryConverter(converter string, entry *db.FlowEntry, flow []db.FlowItem) ([]
 		// Anchor the first converted chunk to the parent flow's start time
 		// when the converter didn't set one. Previous code wrote to
 		// streamChunks[len(streamChunks)] which is out of bounds on every
-		// non-empty result -- so every converter call used to panic, fake a
+		// non-empty result - so every converter call used to panic, fake a
 		// timeout via the outer select, and restart the subprocess.
 		if len(flow) != 0 && len(streamChunks) != 0 {
 			if streamChunks[0].Time.IsZero() {

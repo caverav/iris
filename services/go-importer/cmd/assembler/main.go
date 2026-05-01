@@ -547,7 +547,7 @@ func (service *AssemblerService) WatchDir(watch_dir string) {
 					// accepts files with prefixes that start with .pcap (.pcapng .pcap1 etc)
 					if strings.HasPrefix(filepath.Ext(event.Name), ".pcap") {
 						log.Println("Found new file", event.Name, event.Op.String())
-						// Wait until the writer is done appending -- rsync can
+						// Wait until the writer is done appending - rsync can
 						// take many seconds to land a large pcap, and a
 						// blind 2s sleep either missed late bytes or wasted
 						// time on small files.

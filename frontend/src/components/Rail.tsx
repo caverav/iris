@@ -16,11 +16,11 @@ export function Rail({ active }: { active: View }) {
   const qs = params.toString();
   const items: Array<{ id: View; to: string; icon: JSX.Element; label: string }> = [
     { id: "home", to: `/?${qs}`, icon: <IconHome />, label: "Home" },
-    // "Flows" uses the same root route -- when a flow is selected we land
+    // "Flows" uses the same root route - when a flow is selected we land
     // on /flow/:id and this item stays active.
     { id: "flows", to: `/?${qs}`, icon: <IconFlows />, label: "Flows" },
-    { id: "graph", to: `/corrie?${qs}`, icon: <IconGraph />, label: "Graph · G" },
-    { id: "diff", to: `/diff/?${qs}`, icon: <IconDiff />, label: "Diff · D" },
+    { id: "graph", to: `/corrie?${qs}`, icon: <IconGraph />, label: "Graph . G" },
+    { id: "diff", to: `/diff/?${qs}`, icon: <IconDiff />, label: "Diff . D" },
   ];
   return (
     <div className="rail">
@@ -41,7 +41,7 @@ export function Rail({ active }: { active: View }) {
         className="rail-btn"
         title="Settings"
         onClick={() => {
-          // Tweaks toggle is not wired in this build -- hint to the user
+          // Tweaks toggle is not wired in this build - hint to the user
           // until the Tweaks panel is implemented.
           const html = document.documentElement;
           const cur = html.getAttribute("data-accent") || "magenta";

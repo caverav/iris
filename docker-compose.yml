@@ -1,10 +1,10 @@
 version: "3.5"
 
 # Iris deployment profiles:
-#   iris            -- core stack (DB, API, frontend, assembler, enricher, flagids)
-#   suricata-ids    -- Suricata in offline pcap-reading mode (default legacy behaviour)
-#   suricata-ips    -- Suricata inline via NFQUEUE on the host (blocks matched attacks)
-#   vulnbox-agent   -- rsync shipper for split-mode deployments
+#   iris            - core stack (DB, API, frontend, assembler, enricher, flagids)
+#   suricata-ids    - Suricata in offline pcap-reading mode (default legacy behaviour)
+#   suricata-ips    - Suricata inline via NFQUEUE on the host (blocks matched attacks)
+#   vulnbox-agent   - rsync shipper for split-mode deployments
 #
 # Set COMPOSE_PROFILES in .env (default is `iris,suricata-ids`).
 # On the vulnbox in split mode, override with `COMPOSE_PROFILES=suricata-ips,vulnbox-agent`.

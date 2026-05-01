@@ -44,30 +44,30 @@ The prompts are gated by your earlier answers, so a vulnbox-only install
 doesn't get asked about the frontend, and an IDS install doesn't get asked
 about NFQUEUE. Full set:
 
-1. **Deployment mode** -- one of four profile combinations
+1. **Deployment mode** - one of four profile combinations
    (`all-in-one IDS`, `all-in-one IPS`, `split-iris`, `split-vulnbox`).
    This drives which of the later sections are shown and fills `COMPOSE_PROFILES`.
-2. **Traffic source** (core modes only) -- pick between rsync into a shared
+2. **Traffic source** (core modes only) - pick between rsync into a shared
    directory, PCAP-over-IP streaming, or local capture via `DUMP_PCAPS`. Sets
    `TRAFFIC_DIR_HOST`, `TRAFFIC_DIR_DOCKER`, `PCAP_OVER_IP`, `DUMP_PCAPS*`, and
    an optional `BPF` filter.
-3. **Game parameters** -- `TICK_START` (ISO-8601), tick length presets
+3. **Game parameters** - `TICK_START` (ISO-8601), tick length presets
    (60 s / 120 s / 180 s / 300 s / custom), flag regex presets
    (Faust / ENOWARS / ECSC / RuCTF / custom), `VM_IP`, `TEAM_ID`.
-4. **Services** -- walks you through adding the services you defend; the list
+4. **Services** - walks you through adding the services you defend; the list
    lands in `services/api/configurations.py` and drives the service dropdown
    in the UI. If a previous list exists (including the legacy `helper='''ip:port name'''`
    format) it's parsed and offered as the default.
-5. **Suricata** -- `SURICATA_DIR_HOST`, `SURICATA_UPDATE_ENABLE`, `EMIT_SID_TAGS`.
-6. **NFQUEUE** (IPS modes only) -- `NFQUEUE_NUM`, `NFQUEUE_IFACE`, `NFQUEUE_CHAINS`,
+5. **Suricata** - `SURICATA_DIR_HOST`, `SURICATA_UPDATE_ENABLE`, `EMIT_SID_TAGS`.
+6. **NFQUEUE** (IPS modes only) - `NFQUEUE_NUM`, `NFQUEUE_IFACE`, `NFQUEUE_CHAINS`,
    `NFQUEUE_IPV6`.
-7. **Split-mode shipper** (vulnbox mode only) -- `VULNBOX_SSH_DEST`,
+7. **Split-mode shipper** (vulnbox mode only) - `VULNBOX_SSH_DEST`,
    `VULNBOX_SSH_KEY`, `SHIP_INTERVAL`.
-8. **Flag validator** (core modes only) -- none / faust / enowars / eno / itad,
+8. **Flag validator** (core modes only) - none / faust / enowars / eno / itad,
    plus `FLAG_VALIDATOR_TEAM` when a validator is picked.
-9. **FlagID scraping** (core modes only) -- `FLAGID_SCRAPE`, `FLAGID_ENDPOINT`,
+9. **FlagID scraping** (core modes only) - `FLAGID_SCRAPE`, `FLAGID_ENDPOINT`,
    `FLAGID_SCAN`, `FLAG_LIFETIME`.
-10. **Preview** -- a coloured unified diff of `.env` and (if relevant)
+10. **Preview** - a coloured unified diff of `.env` and (if relevant)
     `services/api/configurations.py`. Press `y` to write, anything else to bail.
 
 ### Flags
@@ -137,13 +137,13 @@ Iris ships four compose profiles that combine into three deployment shapes:
 |-----------------|------------------------------------------------------------------------------|
 | `iris`          | Core stack: timescale, api, frontend, assembler, enricher, flagids           |
 | `suricata-ids`  | Suricata reading offline pcap files (today's default, passive observation)   |
-| `suricata-ips`  | Suricata inline via **NFQUEUE** -- matched `drop` rules block attacks in-kernel |
+| `suricata-ips`  | Suricata inline via **NFQUEUE** - matched `drop` rules block attacks in-kernel |
 | `vulnbox-agent` | rsync shipper that pushes `eve.json` and pcaps to a remote Iris host        |
 
 Pick a recipe by setting `COMPOSE_PROFILES` in `.env` (or overriding at the CLI
 with `--profile`).
 
-### 1. All-in-one (IDS -- default)
+### 1. All-in-one (IDS - default)
 
 Everything on one host, Suricata reads offline pcaps. This is what you get with
 the default `.env.example`.
@@ -156,7 +156,7 @@ COMPOSE_PROFILES=iris,suricata-ids
 docker compose up -d --build
 ```
 
-### 2. All-in-one (IPS -- inline blocking)
+### 2. All-in-one (IPS - inline blocking)
 
 Same host, but Suricata runs inline via NFQUEUE and actually drops matching
 traffic. See [Suricata IPS mode](#suricata-ips-mode-nfqueue) for the safety
@@ -178,7 +178,7 @@ The vulnbox runs Suricata (IDS or IPS) plus a lightweight shipper; the analysis
 box runs the full Iris stack and consumes the shipped files. Good for keeping
 the vulnbox light under attack.
 
-**On the vulnbox** -- `.env` has:
+**On the vulnbox** - `.env` has:
 
 ```env
 COMPOSE_PROFILES=suricata-ips,vulnbox-agent
@@ -195,7 +195,7 @@ half on the analysis box. Then:
 docker compose up -d --build
 ```
 
-**On the analysis box** -- `.env` has `COMPOSE_PROFILES=iris` and
+**On the analysis box** - `.env` has `COMPOSE_PROFILES=iris` and
 `TRAFFIC_DIR_HOST` pointing to the rsync landing directory. The enricher reads
 `${SURICATA_DIR_HOST}/log/eve.json`, so make sure `VULNBOX_SSH_DEST` on the
 vulnbox targets `${SURICATA_DIR_HOST}/log/eve.json` plus pcaps side-by-side.
@@ -204,16 +204,16 @@ vulnbox targets `${SURICATA_DIR_HOST}/log/eve.json` plus pcaps side-by-side.
 
 Rules live in two places:
 
-- **Repo-tracked seeds** at `suricata/rules/` -- copied into
+- **Repo-tracked seeds** at `suricata/rules/` - copied into
   `${SURICATA_DIR_HOST}/lib/rules/` on first run. Never overwritten, so you can
   edit freely under `${SURICATA_DIR_HOST}/lib/rules/`.
-- **Runtime dir** at `${SURICATA_DIR_HOST}/lib/rules/` -- the Suricata container
+- **Runtime dir** at `${SURICATA_DIR_HOST}/lib/rules/` - the Suricata container
   reads everything here matching `*.rules` (configured in
   `suricata/etc/suricata.yaml`).
 
 The seed set (`suricata/rules/local.rules`) uses sids in the
 `9000000-9000999` range and carries `metadata: tag <name>;` on every rule. Each
-metadata tag becomes a filterable Iris tag -- both the raw tag (e.g.
+metadata tag becomes a filterable Iris tag - both the raw tag (e.g.
 `path_traversal`) and a namespaced alias (`rule:path_traversal`).
 
 ### Pulling ET-Open
@@ -254,21 +254,21 @@ Inline blocking is off by default. Turning it on hooks the vulnbox's
 `iptables` with an NFQUEUE jump so Suricata sees (and can `drop`) packets
 before they reach your services.
 
-**Safety defaults** -- both are on by default, do not disable them lightly:
+**Safety defaults** - both are on by default, do not disable them lightly:
 
 - `iptables ... -j NFQUEUE --queue-bypass` means if Suricata crashes, packets
   pass freely instead of all getting dropped.
 - Suricata's `nfq.fail-open: yes` does the same from the Suricata side.
 
 Together they guarantee that a Suricata failure cannot bring your vulnerable
-services down -- the trade-off being that during the outage window you get no
+services down - the trade-off being that during the outage window you get no
 IPS protection.
 
 **Caveats**
 
 - Linux only. NFQUEUE is a Linux-kernel facility.
 - The container runs with `network_mode: host` and `NET_ADMIN`/`NET_RAW`. This
-  means Suricata-IPS is privileged on the vulnbox -- do not expose it to
+  means Suricata-IPS is privileged on the vulnbox - do not expose it to
   untrusted images on the same host.
 - `NFQUEUE_CHAINS` defaults to `INPUT,FORWARD,DOCKER-USER`. If your vulnerable
   services run on the host network, `INPUT` is the interesting chain. If they
@@ -276,9 +276,9 @@ IPS protection.
   forwarded-from-outside traffic.
 - Seed rules default to `drop` only on high-confidence patterns (traversal,
   RCE, flag egress). Review `suricata/rules/local.rules` before relying on it
-  in production -- an over-eager rule will drop your own traffic.
+  in production - an over-eager rule will drop your own traffic.
 
-**Tearing down the NFQUEUE jump** -- `docker compose down` stops the
+**Tearing down the NFQUEUE jump** - `docker compose down` stops the
 containers but leaves the iptables jump in place. Run
 `sudo bash suricata/iptables-teardown.sh` from the repo root, or reboot.
 

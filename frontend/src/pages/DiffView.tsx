@@ -107,7 +107,7 @@ export function DiffView() {
     return <div className="detail-body" style={{ padding: 24, color: "var(--danger)" }}>Invalid flow id</div>;
   }
   if (firstFlowLoading || secondFlowLoading || !firstFlow || !secondFlow) {
-    return <div className="detail-body" style={{ padding: 24, color: "var(--ink-muted)" }}>Loading…</div>;
+    return <div className="detail-body" style={{ padding: 24, color: "var(--ink-muted)" }}>Loading...</div>;
   }
 
   const firstLen = firstFlow.flow[firstFlowRepr].flow.length;

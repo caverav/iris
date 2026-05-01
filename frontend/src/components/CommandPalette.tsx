@@ -112,7 +112,7 @@ export function CommandPalette({ open, onClose, onNavigate }: Props) {
           <IconSearch size={14} />
           <input
             ref={inputRef}
-            placeholder="Jump to view, run action, filter by tag…"
+            placeholder="Jump to view, run action, filter by tag..."
             value={q}
             onChange={(e) => {
               setQ(e.target.value);

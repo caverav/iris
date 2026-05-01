@@ -179,7 +179,7 @@ export const Corrie = () => {
         </div>
         <div style={{ flex: 1 }} />
         <span style={{ fontSize: 10, color: "var(--ink-faint)" }}>
-          click a flow · press <kbd className="kbd-inline">w</kbd> to scroll to it in the flow list
+          click a flow . press <kbd className="kbd-inline">w</kbd> to scroll to it in the flow list
         </span>
       </div>
       <div className="graph-stage">

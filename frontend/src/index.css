@@ -5,14 +5,14 @@
 @tailwind utilities;
 
 /* --------------------------------------------------------------------------
-   Iris design tokens -- neon/synthwave on near-black.
+   Iris design tokens - neon/synthwave on near-black.
    Values are mirrored into Tailwind via tailwind.config.js colors; new code
    should prefer the semantic tailwind classes (`bg-canvas`, `text-ink`,
    `border-line`, `text-accent`) over raw CSS variables in JSX.
    -------------------------------------------------------------------------- */
 :root,
 .dark {
-  /* Surfaces -- near-black with faint cool tint. */
+  /* Surfaces - near-black with faint cool tint. */
   --bg:             #0a0a0c;
   --bg-1:           #0e0e12;
   --bg-2:           #14141a;
@@ -46,7 +46,7 @@
   --info:           oklch(0.78 0.15 220);
   --info-soft:      oklch(0.78 0.15 220 / 0.14);
 
-  /* Density scale -- overridden by html[data-density="..."]. */
+  /* Density scale - overridden by html[data-density="..."]. */
   --row-h:          44px;
   --cell-pad:       10px;
   --radius:         4px;
@@ -121,7 +121,7 @@ a { color: inherit; text-decoration: none; }
 *::-webkit-scrollbar-thumb:hover { background: var(--line-strong); }
 
 /* --------------------------------------------------------------------------
-   Form controls -- global theme so scattered raw <input> / <select> pick up
+   Form controls - global theme so scattered raw <input> / <select> pick up
    the dark look without individual class churn.
    -------------------------------------------------------------------------- */
 input[type='text'],
@@ -184,7 +184,7 @@ select {
 }
 
 /* --------------------------------------------------------------------------
-   Reusable control (.ctl) -- used by the header, tabs, and toolbars.
+   Reusable control (.ctl) - used by the header, tabs, and toolbars.
    -------------------------------------------------------------------------- */
 .ctl {
   height: 26px;

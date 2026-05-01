@@ -114,7 +114,7 @@ export function FlowList() {
       : null;
 
   let searchMessage: string | null = null;
-  if (isFetching) searchMessage = "searching…";
+  if (isFetching) searchMessage = "searching...";
   else if (flowQueryErrorMessage) searchMessage = `error: ${flowQueryErrorMessage}`;
   else if (startedTimeStamp && fulfilledTimeStamp)
     searchMessage = `search ${fulfilledTimeStamp - startedTimeStamp}ms`;
