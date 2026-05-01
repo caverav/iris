@@ -19,6 +19,9 @@ x-suricata-common: &suricata-common
     - ${SURICATA_DIR_HOST}/log:/var/log/suricata
     - ${SURICATA_DIR_HOST}/etc:/etc/suricata
     - ${SURICATA_DIR_HOST}/lib:/var/lib/suricata
+    # Suricata writes its unix-command socket here; api mounts the same
+    # named volume so the Settings page can `suricatasc reload-rules`.
+    - suricata-control:/run/suricata
   healthcheck:
     test: ["CMD-SHELL", "pgrep -x suricata >/dev/null"]
     interval: 30s
@@ -80,6 +83,12 @@ services:
       - internal
     volumes:
       - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro
+      # Settings page edits local.rules; mount the rules dir rw so the api
+      # can write into it. Same dir Suricata reads from at /var/lib/suricata.
+      - ${SURICATA_DIR_HOST}/lib/rules:/suricata/rules:rw
+      # suricatasc reload-rules talks to Suricata over its unix-command
+      # socket; share the runtime dir so this socket is visible to api.
+      - suricata-control:/run/suricata
     environment:
       TIMESCALE: ${TIMESCALE}
       IRIS_TRAFFIC_DIR: ${TRAFFIC_DIR_DOCKER}
@@ -87,6 +96,10 @@ services:
       TICK_START: ${TICK_START}
       TICK_LENGTH: ${TICK_LENGTH}
       VM_IP: ${VM_IP}
+      IRIS_RULES_PATH: /suricata/rules/local.rules
+      IRIS_SURICATA_SOCKET: /run/suricata/suricata-command.socket
+      IRIS_ADMIN_USER: ${IRIS_ADMIN_USER:-}
+      IRIS_ADMIN_PASS: ${IRIS_ADMIN_PASS:-}
 
   flagids:
     profiles: ["iris"]
@@ -194,6 +207,7 @@ services:
       - ${SURICATA_DIR_HOST}/log:/var/log/suricata
       - ${SURICATA_DIR_HOST}/etc:/etc/suricata
       - ${SURICATA_DIR_HOST}/lib:/var/lib/suricata
+      - suricata-control:/run/suricata
     depends_on:
       iptables-init:
         condition: service_completed_successfully
@@ -239,6 +253,7 @@ services:
 
 volumes:
   timescale-data:
+  suricata-control:
 
 networks:
   internal:
