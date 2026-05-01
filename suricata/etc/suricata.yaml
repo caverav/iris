@@ -113,7 +113,9 @@ logging:
 nfq:
   mode: accept
   fail-open: yes
-  batchcount: 20
+  # batchcount is only honored in `runmode: workers`. We use `autofp` (the
+  # Suricata 7 default) where it is silently ignored, so leaving it set
+  # only produces a noisy warning at start-up.
   repeat-mark: 1
   repeat-mask: 1
   bypass-mark: 2
