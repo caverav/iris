@@ -23,6 +23,29 @@ if [ -n "$IFACE" ]; then
   iface_args="-i $IFACE"
 fi
 
+# Pick whichever iptables backend the host kernel is using. The image ships
+# both iptables-nft and iptables-legacy; the inactive one returns an empty
+# rule set. Compare rule counts and prefer the one with rules. Default to
+# nft on tie, since modern distros (RHEL 9+, Ubuntu 22.04+, NixOS, ...) all
+# use nft. Same trick as kubernetes-sigs/iptables-wrappers.
+detect_iptables_backend() {
+  local nft legacy
+  nft=$(iptables-nft-save 2>/dev/null | grep -c '^-' || true)
+  legacy=$(iptables-legacy-save 2>/dev/null | grep -c '^-' || true)
+  nft=${nft:-0}
+  legacy=${legacy:-0}
+  if [ "$legacy" -gt "$nft" ]; then
+    echo legacy
+  else
+    echo nft
+  fi
+}
+
+BACKEND="$(detect_iptables_backend)"
+IPT4="iptables-${BACKEND}"
+IPT6="ip6tables-${BACKEND}"
+echo "[iptables-init] using host backend: $BACKEND ($IPT4 / $IPT6)"
+
 install_jump() {
   local cmd="$1"
   local chain="$2"
@@ -44,9 +67,9 @@ IFS=',' read -r -a chains <<< "$CHAINS"
 for chain in "${chains[@]}"; do
   chain_trimmed="$(echo "$chain" | tr -d '[:space:]')"
   [ -z "$chain_trimmed" ] && continue
-  install_jump "iptables" "$chain_trimmed"
+  install_jump "$IPT4" "$chain_trimmed"
   if [ "$IPV6" = "1" ]; then
-    install_jump "ip6tables" "$chain_trimmed"
+    install_jump "$IPT6" "$chain_trimmed"
   fi
 done
 

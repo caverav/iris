@@ -1,7 +1,12 @@
 FROM jasonish/suricata:7.0
 
-RUN apk add --no-cache bash iptables ip6tables py3-pip \
-    && pip3 install --no-cache-dir --break-system-packages suricata-update || true
+# Base is AlmaLinux 9, not Alpine. Install both iptables backends so the
+# init script can pick whichever the host kernel is using (nft for modern
+# distros, legacy for older ones); see iptables-init.sh for the detection.
+RUN dnf install -y --setopt=install_weak_deps=False \
+        iptables-nft iptables-legacy python3-pip \
+    && dnf clean all \
+    && pip3 install --no-cache-dir --break-system-packages suricata-update
 
 COPY entrypoint.sh /usr/local/bin/iris-suricata-entrypoint.sh
 COPY rules /seed/rules
