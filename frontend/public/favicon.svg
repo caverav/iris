@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+     stroke="oklch(0.72 0.22 326)" stroke-width="1.6"
+     stroke-linecap="round" stroke-linejoin="round">
+  <!-- Iris flower mark, matches IrisMark in components/icons.tsx.
+       Three upright standards, two drooping falls, filled bloom centre,
+       stem with leaf. Stroke uses the iris brand magenta hue (h=326). -->
+  <g>
+    <path d="M12 3 C 11 6, 10 8, 10 10"/>
+    <path d="M12 3 L 12 10"/>
+    <path d="M12 3 C 13 6, 14 8, 14 10"/>
+    <path d="M10 10 C 7 11, 5 13, 5 16 C 8 16, 10 14, 11 11"/>
+    <path d="M14 10 C 17 11, 19 13, 19 16 C 16 16, 14 14, 13 11"/>
+    <circle cx="12" cy="10" r="0.9" fill="oklch(0.72 0.22 326)" stroke="none"/>
+    <path d="M12 11 L 12 20"/>
+    <path d="M12 17 C 14.5 16, 16 17, 16.5 19"/>
+  </g>
+</svg>

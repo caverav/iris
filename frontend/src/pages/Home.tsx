@@ -2,7 +2,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { IrisMark, IconFlows, IconCmdK } from "../components/icons";
 import { IS_MAC, modCombo } from "../utils/platform";
 
-/* Home landing: glowing tulip mark over a radial-gradient canvas, a small
+/* Home landing: glowing iris mark over a radial-gradient canvas, a small
    set of shortcut-reference cards, and two CTAs that map to the two most
    likely next actions (enter flows / open command palette). */
 
