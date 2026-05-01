@@ -4,7 +4,7 @@ FROM jasonish/suricata:7.0
 # init script can pick whichever the host kernel is using (nft for modern
 # distros, legacy for older ones); see iptables-init.sh for the detection.
 RUN dnf install -y --setopt=install_weak_deps=False \
-        iptables-nft iptables-legacy python3-pip \
+        iptables-nft iptables-legacy python3-pip python3-setuptools \
     && dnf clean all \
     && pip3 install --no-cache-dir suricata-update
 
