@@ -29,6 +29,61 @@ var emit_sid_tags = true
 
 var g_db *db.Database
 
+// errFlowNotFound is returned by handleEveLine when an alert references a
+// flow tuple that hasn't been inserted into the DB yet. The assembler may
+// still be buffering the flow under -flush-after; we hold the alert and retry
+// on subsequent scan cycles instead of silently losing the tag.
+var errFlowNotFound = errors.New("flow not found yet")
+
+type deferredAlert struct {
+	line  string
+	until time.Time
+}
+
+var (
+	deferred       []deferredAlert
+	deferredMaxAge = 5 * time.Minute
+	deferredMaxLen = 1000
+)
+
+func deferAlert(line string) {
+	if len(deferred) >= deferredMaxLen {
+		deferred = deferred[1:]
+	}
+	deferred = append(deferred, deferredAlert{
+		line:  line,
+		until: time.Now().Add(deferredMaxAge),
+	})
+}
+
+func retryDeferred() {
+	if len(deferred) == 0 {
+		return
+	}
+	now := time.Now()
+	keep := deferred[:0]
+	dropped := 0
+	for _, d := range deferred {
+		if now.After(d.until) {
+			dropped++
+			continue
+		}
+		err := handleEveLine(d.line)
+		if err == nil {
+			continue // applied; handleEveLine already logs "Applied"
+		}
+		if errors.Is(err, errFlowNotFound) {
+			keep = append(keep, d)
+			continue
+		}
+		log.Printf("dropping deferred alert (parse error): %s", err)
+	}
+	deferred = keep
+	if dropped > 0 {
+		log.Printf("aged out %d deferred alert(s) with no matching flow after %s", dropped, deferredMaxAge)
+	}
+}
+
 func main() {
 	flag.Parse()
 	if *eve_file == "" {
@@ -66,6 +121,9 @@ func watchEve(eve_file string) {
 
 	for {
 		time.Sleep(time.Duration(*rescan_period) * time.Second)
+
+		// Retry alerts whose flow was not yet in the DB on a previous scan.
+		retryDeferred()
 
 		new_stat, err := os.Stat(eve_file)
 		if err != nil {
@@ -122,19 +180,18 @@ func updateEve(eve_file string, ratchet int64) int64 {
 		}
 
 		err = handleEveLine(line)
-
-		// Line was successfully parsed, continue from the next one
-		if err == nil {
-			ratchet += int64(len(line))
-		}
-
-		// Line parsing failed. Line is corrupt
-		// Since we only get here if the line was complete (we did not read EOF before newline),
-		// we can simply skip this line. Rescaning it will not help.
-		if err != nil {
+		switch {
+		case err == nil:
+			// applied (or intentionally skipped: no actionable content)
+		case errors.Is(err, errFlowNotFound):
+			// Flow not yet in DB. Save the line for retry; advance the
+			// ratchet so we don't re-read it from the file on next scan.
+			deferAlert(line)
+		default:
+			// Genuine parse error. Skip - re-reading won't help.
 			log.Printf("Error parsing eve at offset %d: %s\n", ratchet, err)
-			ratchet += int64(len(line))
 		}
+		ratchet += int64(len(line))
 	}
 
 	// Roll the eve handle back to the last successfully applied rule, so it can continue there
@@ -225,9 +282,10 @@ func handleEveLine(json string) error {
 		})
 	}
 
-	// Flow not found
+	// Flow not found - likely a race with the assembler's flush. Surface a
+	// distinct error so the scan loop can hold the alert and retry later.
 	if flow_id == uuid.Nil {
-		return nil
+		return errFlowNotFound
 	}
 
 	tags := []string{}
