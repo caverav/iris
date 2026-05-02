@@ -89,6 +89,8 @@ services:
       # suricatasc reload-rules talks to Suricata over its unix-command
       # socket; share the runtime dir so this socket is visible to api.
       - suricata-control:/run/suricata
+      # SSH key embedded in the /admin/bootstrap response (split mode only).
+      - ${IRIS_BOOTSTRAP_KEY_DIR:-./iris-setup/keys}:/run/iris-keys:ro
     environment:
       TIMESCALE: ${TIMESCALE}
       IRIS_TRAFFIC_DIR: ${TRAFFIC_DIR_DOCKER}
@@ -100,6 +102,13 @@ services:
       IRIS_SURICATA_SOCKET: /run/suricata/suricata-command.socket
       IRIS_ADMIN_USER: ${IRIS_ADMIN_USER:-}
       IRIS_ADMIN_PASS: ${IRIS_ADMIN_PASS:-}
+      # /admin/bootstrap embeds these so a curl-piped install on a fresh
+      # vulnbox knows how to ship back to us. Set on the analysis box only.
+      IRIS_BOOTSTRAP_API_BASE: ${IRIS_BOOTSTRAP_API_BASE:-}
+      IRIS_BOOTSTRAP_KEY_PATH: ${IRIS_BOOTSTRAP_KEY_PATH:-/run/iris-keys/id_ed25519}
+      IRIS_REPO_URL: ${IRIS_REPO_URL:-https://github.com/caverav/iris.git}
+      IRIS_REPO_REF: ${IRIS_REPO_REF:-master}
+      VULNBOX_SSH_DEST: ${VULNBOX_SSH_DEST:-}
 
   flagids:
     profiles: ["iris"]
@@ -177,7 +186,10 @@ services:
     volumes:
       - ${SURICATA_DIR_HOST}/log:/suricata:ro
       - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro,z
-    command: "./enricher -eve /suricata/eve.json"
+    # Glob so the enricher picks up either the single all-in-one eve.json
+    # or N hostname-tagged eve-<vulnbox>.json files in split mode - both
+    # files match `eve*.json`.
+    command: "./enricher -eve /suricata/eve*.json"
     environment:
       TIMESCALE: ${TIMESCALE}
       EMIT_SID_TAGS: ${EMIT_SID_TAGS}
@@ -236,20 +248,36 @@ services:
 
   # --- Vulnbox-side shipper (split-mode deployments) ------------------------
   # Runs on the vulnbox alongside suricata-ips. Rsyncs eve.json and rotating
-  # pcaps to the analysis box where the iris profile runs.
+  # pcaps to the analysis box where the iris profile runs, and pulls the
+  # canonical local.rules from the analysis box's api so rule edits made in
+  # the Settings UI propagate to every vulnbox.
   shipper:
     profiles: ["vulnbox-agent"]
     build:
       context: vulnbox-agent
     image: iris-shipper:latest
     restart: unless-stopped
+    # hostname inside the container drives the upload tag (eve-<host>.json
+    # etc.). Default to the host's hostname so multi-vulnbox deployments
+    # don't collide on shared rsync targets.
+    hostname: ${VULNBOX_HOSTNAME:-vulnbox}
     volumes:
       - ${SURICATA_DIR_HOST}/log:/suricata/log:ro
       - ${TRAFFIC_DIR_HOST}:/traffic:ro
       - ${VULNBOX_SSH_KEY:-./vulnbox-agent/id_ed25519}:/keys/id_ed25519:ro
+      # rules-puller writes here on change; suricata-ips reads from the
+      # same path.
+      - ${SURICATA_DIR_HOST}/lib/rules:/var/lib/suricata/rules:rw
+      # control socket for `reload-rules` after we drop new rules.
+      - suricata-control:/run/suricata
     environment:
       VULNBOX_SSH_DEST: ${VULNBOX_SSH_DEST}
+      VULNBOX_HOSTNAME: ${VULNBOX_HOSTNAME:-}
       SHIP_INTERVAL: ${SHIP_INTERVAL}
+      IRIS_API_BASE: ${IRIS_API_BASE:-}
+      IRIS_ADMIN_USER: ${IRIS_ADMIN_USER:-admin}
+      IRIS_ADMIN_PASS: ${IRIS_ADMIN_PASS:-}
+      PULL_INTERVAL: ${PULL_INTERVAL:-10}
 
 volumes:
   timescale-data:
