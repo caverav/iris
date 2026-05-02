@@ -50,6 +50,7 @@ from flask import request
 from flow2pwn import flow2pwn
 import database, json_util
 import rules_admin
+import bootstrap_admin
 
 application = Flask(__name__)
 CORS(application)
@@ -370,6 +371,23 @@ def admin_rules_history_one(name):
     if body is None:
         return return_text_response("not found", status=404)
     return return_json_response({"name": name, "content": body})
+
+
+@application.route("/admin/bootstrap", methods=["GET"])
+@rules_admin.require_admin
+def admin_bootstrap():
+    body, status = bootstrap_admin.render_bootstrap()
+    return Response(body, status=status, mimetype="text/x-shellscript")
+
+
+@application.route("/admin/rules/propagation", methods=["GET"])
+@rules_admin.require_admin
+def admin_rules_propagation():
+    cur_sha, vulnboxes = rules_admin.list_vulnbox_status()
+    return return_json_response({
+        "current_sha256": cur_sha,
+        "vulnboxes": [dataclasses.asdict(v) for v in vulnboxes],
+    })
 
 
 def create_app():

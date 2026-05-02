@@ -1,5 +1,8 @@
 # See https://help.github.com/ignore-files/ for more about ignoring files.
 
+# Wizard-generated SSH keys for split-mode bootstrap. Never commit.
+/iris-setup/keys
+
 # dependencies
 /node_modules
 

@@ -46,6 +46,12 @@ SURICATA_SOCKET = os.environ.get(
 )
 HISTORY_KEEP = 20  # last N versions retained in the history dir
 
+# Where vulnboxes drop their tiny status-<hostname>.json beacons. Same
+# directory the assembler watches for pcaps - in split mode that's the
+# rsync target dir on the analysis box.
+TRAFFIC_DIR = Path(os.environ.get("IRIS_TRAFFIC_DIR", "/traffic"))
+VULNBOX_STALE_SECONDS = 5 * 60
+
 
 # ---------------------------------------------------------------------------
 # Auth
@@ -280,6 +286,60 @@ def reload_rules() -> ReloadResult:
             )
     except (OSError, socket.timeout, json.JSONDecodeError) as e:
         return ReloadResult(ok=False, message=f"socket error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Vulnbox propagation status
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class VulnboxStatus:
+    hostname: str
+    loaded_sha256: str
+    ts: int               # unix seconds when the vulnbox last reported
+    age_seconds: int      # now() - ts
+    stale: bool           # age > VULNBOX_STALE_SECONDS
+    in_sync: bool         # loaded_sha256 == current rules sha
+
+
+def current_rules_sha256() -> str:
+    if not RULES_PATH.exists():
+        return ""
+    import hashlib
+    return hashlib.sha256(RULES_PATH.read_bytes()).hexdigest()
+
+
+def list_vulnbox_status() -> tuple[str, list[VulnboxStatus]]:
+    """Return (current_sha256, [VulnboxStatus]).
+
+    Reads every status-<host>.json the shippers have rsynced into the
+    traffic dir. In all-in-one mode this is a no-op (no shippers exist;
+    the list is empty), which the frontend displays as "no vulnboxes".
+    """
+    cur_sha = current_rules_sha256()
+    out: list[VulnboxStatus] = []
+    if not TRAFFIC_DIR.exists():
+        return cur_sha, out
+    now = int(time.time())
+    for p in sorted(TRAFFIC_DIR.glob("status-*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        host = str(data.get("hostname", p.stem.removeprefix("status-")))
+        loaded = str(data.get("loaded_rules_sha256", ""))
+        ts = int(data.get("ts", 0))
+        age = max(0, now - ts)
+        out.append(VulnboxStatus(
+            hostname=host,
+            loaded_sha256=loaded,
+            ts=ts,
+            age_seconds=age,
+            stale=(age > VULNBOX_STALE_SECONDS),
+            in_sync=(loaded != "" and loaded == cur_sha),
+        ))
+    return cur_sha, out
 
 
 def _send(sock: socket.socket, obj: dict) -> None:
