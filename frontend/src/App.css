@@ -1094,6 +1094,42 @@
 }
 .settings-history li .b { color: var(--ink-muted); }
 .settings-empty { color: var(--ink-muted); font-size: 12px; }
+.settings-prop { margin-top: 6px; }
+.settings-prop h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+.settings-prop ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+.settings-prop li {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 8px;
+  align-items: baseline;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-radius: 4px;
+  background: var(--bg-1);
+  font-size: 12px;
+}
+.settings-prop li.ok    { border-left-color: oklch(0.72 0.18 150); }
+.settings-prop li.lag   { border-left-color: oklch(0.72 0.18 80);  }
+.settings-prop li.stale { border-left-color: oklch(0.65 0.22 25);  }
+.settings-prop li .h { font-weight: 500; }
+.settings-prop li .b {
+  color: var(--ink-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 .settings-creds {
   max-width: 360px;
   margin: 60px auto 0;

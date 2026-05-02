@@ -17,6 +17,15 @@ type ApplyResult = {
   validate_output?: string;
 };
 type ValidateResult = { ok: boolean; output: string };
+type VulnboxStatus = {
+  hostname: string;
+  loaded_sha256: string;
+  ts: number;
+  age_seconds: number;
+  stale: boolean;
+  in_sync: boolean;
+};
+type Propagation = { current_sha256: string; vulnboxes: VulnboxStatus[] };
 
 const CREDS_KEY = "iris.adminCreds"; // sessionStorage
 
@@ -85,6 +94,12 @@ export function Settings() {
   const [needsAuth, setNeedsAuth] = useState(false);
   const [validateOut, setValidateOut] = useState<ValidateResult | null>(null);
   const [applyOut, setApplyOut] = useState<ApplyResult | null>(null);
+  const [propagation, setPropagation] = useState<Propagation | null>(null);
+
+  const loadPropagation = useCallback(async () => {
+    const r = await adminFetch("/admin/rules/propagation");
+    if (r.ok) setPropagation(await r.json());
+  }, []);
 
   const load = useCallback(async () => {
     setBusy("load");
@@ -101,13 +116,25 @@ export function Settings() {
       setPath(data.path);
       const h = await adminFetch("/admin/rules/history");
       if (h.ok) setHistory((await h.json()).entries);
+      await loadPropagation();
     }
     setBusy("");
-  }, []);
+  }, [loadPropagation]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Vulnboxes pull every ~10s; refresh the propagation panel on a similar
+  // cadence so a freshly-applied ruleset visibly fans out without manual
+  // reload. Only polls while the tab is visible.
+  useEffect(() => {
+    if (needsAuth) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === "visible") loadPropagation();
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [needsAuth, loadPropagation]);
 
   const dirty = useMemo(() => content !== original, [content, original]);
 
@@ -194,6 +221,36 @@ export function Settings() {
               : "saved, reload failed"}
           </strong>
           <pre>{applyOut.output || "(no output)"}</pre>
+        </div>
+      )}
+
+      {propagation && propagation.vulnboxes.length > 0 && (
+        <div className="settings-prop">
+          <h3>
+            vulnbox sync .{" "}
+            {propagation.vulnboxes.filter((v) => v.in_sync).length}/{propagation.vulnboxes.length}{" "}
+            on current ruleset
+          </h3>
+          <ul>
+            {propagation.vulnboxes.map((v) => (
+              <li
+                key={v.hostname}
+                className={v.in_sync ? "ok" : v.stale ? "stale" : "lag"}
+              >
+                <span className="h">{v.hostname}</span>
+                <span className="b">
+                  {v.in_sync
+                    ? "synced"
+                    : v.stale
+                    ? `silent ${Math.round(v.age_seconds / 60)}m`
+                    : "stale rules"}
+                </span>
+                <span className="b" title={v.loaded_sha256}>
+                  {v.loaded_sha256 ? v.loaded_sha256.slice(0, 8) : "--"}
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
