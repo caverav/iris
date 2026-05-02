@@ -178,6 +178,11 @@ The vulnbox runs Suricata (IDS or IPS) plus a lightweight shipper; the analysis
 box runs the full Iris stack and consumes the shipped files. Good for keeping
 the vulnbox light under attack.
 
+> **For ICC-style fleets (one analysis box + N vulnboxes, mid-game additions),
+> see [PLAYBOOK.md](./PLAYBOOK.md).** The wizard's `--init-analysis` and
+> `--add-vulnbox` subcommands automate everything below; the playbook is the
+> day-of-CTF runbook.
+
 **On the vulnbox** - `.env` has:
 
 ```env
