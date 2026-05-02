@@ -29,8 +29,8 @@ _BOOTSTRAP_TEMPLATE = Template(r"""#!/usr/bin/env bash
 #   curl -fsSL -u user:pass http://<analysis-host>:5000/api/admin/bootstrap | sudo bash
 set -euo pipefail
 
-REPO="${IRIS_REPO:-$IRIS_REPO_DEFAULT}"
-DEST="${IRIS_DEST:-/opt/iris}"
+REPO="$${IRIS_REPO:-$IRIS_REPO_DEFAULT}"
+DEST="$${IRIS_DEST:-/opt/iris}"
 ANALYSIS_API="$ANALYSIS_API"
 ADMIN_USER="$ADMIN_USER"
 ADMIN_PASS_B64="$ADMIN_PASS_B64"
