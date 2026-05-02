@@ -81,6 +81,11 @@ services:
       - timescale
     networks:
       - internal
+    # Expose the api directly so split-mode vulnboxes can curl
+    # /admin/bootstrap and /admin/rules without going through the
+    # frontend's proxy. Auth is HTTP basic against IRIS_ADMIN_PASS.
+    ports:
+      - "5000:5000"
     volumes:
       - ${TRAFFIC_DIR_HOST}:${TRAFFIC_DIR_DOCKER}:ro
       # Settings page edits local.rules; mount the rules dir rw so the api
@@ -278,6 +283,54 @@ services:
       IRIS_ADMIN_USER: ${IRIS_ADMIN_USER:-admin}
       IRIS_ADMIN_PASS: ${IRIS_ADMIN_PASS:-}
       PULL_INTERVAL: ${PULL_INTERVAL:-10}
+
+  # --- Analysis-side fetcher (split-mode, ICC-style one-way gamenets) -------
+  # SSH-rsyncs eve.json + pcaps from each vulnbox INTO the analysis box.
+  # Use this when the gamenet drops vulnbox -> player traffic and the
+  # push-shipper can't reach back. Configure VULNBOX_LIST in .env.
+  fetcher:
+    profiles: ["fetcher"]
+    build:
+      context: services/fetcher
+    image: iris-fetcher:latest
+    restart: unless-stopped
+    volumes:
+      - ${TRAFFIC_DIR_HOST}:/traffic:rw
+      # Wizard-generated key for the existing bootstrap, OR your own SSH key
+      # authorized on every vulnbox. Same key is fine - the fetcher just
+      # needs read access to /opt/iris/{traffic,suricata-runtime/log} on
+      # each remote host.
+      - ${IRIS_BOOTSTRAP_KEY_DIR:-./iris-keys}:/keys:ro
+    environment:
+      VULNBOX_LIST: ${VULNBOX_LIST:-}
+      SSH_USER: ${VULNBOX_SSH_USER:-root}
+      FETCH_INTERVAL: ${FETCH_INTERVAL:-30}
+      REMOTE_PCAP_DIR: ${REMOTE_PCAP_DIR:-/opt/iris/traffic}
+      REMOTE_EVE: ${REMOTE_EVE:-/opt/iris/suricata-runtime/log/eve.json}
+
+  # --- Periodic disk + DB maintenance ---------------------------------------
+  # Prunes old pcaps in TRAFFIC_DIR and applies a TimescaleDB chunk-retention
+  # policy on the flow hypertables. Both jobs are off unless the corresponding
+  # IRIS_*_RETENTION_* env is set, so adding this profile is safe even if you
+  # haven't decided on a retention horizon yet.
+  janitor:
+    profiles: ["janitor"]
+    build:
+      context: services/janitor
+    image: iris-janitor:latest
+    restart: unless-stopped
+    depends_on:
+      - timescale
+    networks:
+      - internal
+    volumes:
+      - ${TRAFFIC_DIR_HOST}:/traffic:rw
+    environment:
+      TIMESCALE: ${TIMESCALE}
+      JANITOR_INTERVAL_SECONDS: ${JANITOR_INTERVAL_SECONDS:-3600}
+      IRIS_PCAP_RETENTION_HOURS: ${IRIS_PCAP_RETENTION_HOURS:-}
+      IRIS_PCAP_MAX_GB: ${IRIS_PCAP_MAX_GB:-}
+      IRIS_DB_RETENTION_HOURS: ${IRIS_DB_RETENTION_HOURS:-}
 
 volumes:
   timescale-data:
