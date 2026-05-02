@@ -5,6 +5,7 @@ import (
 	"go-importer/internal/pkg/db"
 	"io"
 	"net/netip"
+	"path/filepath"
 	"strings"
 
 	"bufio"
@@ -18,7 +19,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-var eve_file = flag.String("eve", "", "Eve file to watch for suricata's tags")
+var eve_file = flag.String("eve", "", "Eve file or glob to watch (e.g. /suricata/eve.json or /suricata/eve-*.json for split mode)")
 var timescale = flag.String("timescale", "", "Timescale connection string (e. g. postgres://usr:pwd@host:5432/iris)")
 var tag_flowbits = flag.Bool("flowbits", true, "Tag flows with their flowbits")
 var rescan_period = flag.Int("t", 30, "rescan period (in seconds).")
@@ -107,16 +108,52 @@ func main() {
 	watchEve(*eve_file)
 }
 
-func watchEve(eve_file string) {
-	// Do the initial scan
-	log.Println("Parsing initial eve contents...")
-	ratchet := updateEve(eve_file, 0)
+// isGlob returns true if the path looks like a glob pattern. Used to keep
+// the single-file all-in-one mode (`-eve /suricata/eve.json`) bit-identical
+// to before, while a pattern like `/suricata/eve-*.json` activates the
+// multi-file split-mode behaviour.
+func isGlob(p string) bool {
+	return strings.ContainsAny(p, "*?[")
+}
 
-	log.Println("Monitoring eve file: ", eve_file)
-	stat, err := os.Stat(eve_file)
-	prevSize := int64(0)
-	if err == nil {
-		prevSize = stat.Size()
+// fileState is the per-file scan offset for the multi-file watcher.
+type fileState struct {
+	ratchet  int64
+	prevSize int64
+}
+
+func watchEve(eve_pattern string) {
+	states := map[string]*fileState{}
+
+	// Resolve the pattern to a list of files. A bare path resolves to itself
+	// (existing or not); a glob resolves to whatever currently matches.
+	resolve := func() []string {
+		if !isGlob(eve_pattern) {
+			return []string{eve_pattern}
+		}
+		matches, err := filepath.Glob(eve_pattern)
+		if err != nil {
+			log.Println("Bad glob pattern:", eve_pattern, err)
+			return nil
+		}
+		return matches
+	}
+
+	// Initial scan: read every match from the top so existing alerts (e.g.
+	// from a previous run) are processed.
+	log.Println("Parsing initial eve contents from", eve_pattern)
+	for _, path := range resolve() {
+		st := &fileState{}
+		st.ratchet = updateEve(path, 0)
+		if info, err := os.Stat(path); err == nil {
+			st.prevSize = info.Size()
+		}
+		states[path] = st
+	}
+	if isGlob(eve_pattern) {
+		log.Printf("Monitoring %d eve file(s) matching %s", len(states), eve_pattern)
+	} else {
+		log.Println("Monitoring eve file: ", eve_pattern)
 	}
 
 	for {
@@ -125,28 +162,46 @@ func watchEve(eve_file string) {
 		// Retry alerts whose flow was not yet in the DB on a previous scan.
 		retryDeferred()
 
-		new_stat, err := os.Stat(eve_file)
-		if err != nil {
-			log.Println("Failed to open the eve file with error: ", err)
-			continue
-		}
+		// Re-resolve the pattern so newly-added vulnboxes (whose shipper just
+		// dropped a fresh eve-<host>.json) are picked up automatically.
+		current := resolve()
+		seen := map[string]bool{}
+		for _, path := range current {
+			seen[path] = true
+			st, ok := states[path]
+			if !ok {
+				log.Println("New eve file appeared:", path)
+				st = &fileState{}
+				states[path] = st
+			}
 
-		// Handle file rotation / truncation / rsync-replacement: if the file
-		// shrank below our current offset, reset and reprocess from the top.
-		if new_stat.Size() < ratchet {
-			log.Println("Eve file shrank (rotated/truncated?), resetting ratchet to 0")
-			ratchet = 0
-			prevSize = 0
-		}
+			info, err := os.Stat(path)
+			if err != nil {
+				continue
+			}
 
-		if new_stat.Size() > prevSize {
-			log.Println("Eve file was updated. New size:, ", new_stat.Size())
-			ratchet = updateEve(eve_file, ratchet)
-		}
-		prevSize = new_stat.Size()
+			// Handle rotation / rsync-replacement: shrunk file => reset.
+			if info.Size() < st.ratchet {
+				log.Println("Eve file shrank (rotated/truncated?), resetting ratchet to 0:", path)
+				st.ratchet = 0
+				st.prevSize = 0
+			}
 
+			if info.Size() > st.prevSize {
+				log.Printf("Eve file %s updated. New size: %d", path, info.Size())
+				st.ratchet = updateEve(path, st.ratchet)
+			}
+			st.prevSize = info.Size()
+		}
+		// Forget vanished files so the map doesn't grow unbounded across a
+		// long CTF where vulnboxes come and go.
+		for path := range states {
+			if !seen[path] {
+				log.Println("Eve file gone, dropping state for:", path)
+				delete(states, path)
+			}
+		}
 	}
-
 }
 
 // The eve file was just written to, let's parse some logs!
