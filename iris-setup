@@ -923,6 +923,127 @@ def screen_preview_and_write(
 # main
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Split-mode helpers (analysis box <-> vulnbox enrolment)
+# ---------------------------------------------------------------------------
+
+
+def _split_keys_dir(repo_root: Path) -> Path:
+    return repo_root / "iris-setup" / "keys"
+
+
+def _ensure_split_keypair(repo_root: Path) -> tuple[Path, Path]:
+    """Generate (or reuse) the analysis-box ed25519 keypair under iris-setup/keys/."""
+    import shutil
+    keys_dir = _split_keys_dir(repo_root)
+    keys_dir.mkdir(parents=True, exist_ok=True)
+    priv = keys_dir / "id_ed25519"
+    pub = keys_dir / "id_ed25519.pub"
+    if priv.exists() and pub.exists():
+        info(f"Reusing keypair at {priv}")
+        return priv, pub
+    if shutil.which("ssh-keygen") is None:
+        err("ssh-keygen not on PATH; install OpenSSH client to generate keys.")
+        raise SystemExit(2)
+    import subprocess
+    subprocess.run(
+        [
+            "ssh-keygen",
+            "-t", "ed25519",
+            "-f", str(priv),
+            "-N", "",
+            "-C", "iris-vulnbox-shipper",
+        ],
+        check=True,
+    )
+    priv.chmod(0o600)
+    info(f"Generated {priv} (and .pub).")
+    return priv, pub
+
+
+def cmd_init_analysis(repo_root: Path, env_path: Path) -> int:
+    """Generate the bootstrap keypair and print operator-side next steps.
+
+    This is the analysis-box-only setup: the wizard cannot reach into your
+    host's /etc/passwd or sshd_config, so we generate the keys and print the
+    sysadmin steps the operator runs once before vulnboxes can enroll.
+    """
+    section("Analysis-box init (split mode)")
+    priv, pub = _ensure_split_keypair(repo_root)
+
+    env = parse_env_file(env_path) if env_path.is_file() else {}
+    api_base = env.get("IRIS_BOOTSTRAP_API_BASE", "")
+    admin_user = env.get("IRIS_ADMIN_USER", "admin")
+    admin_pass = env.get("IRIS_ADMIN_PASS", "")
+    ssh_dest = env.get("VULNBOX_SSH_DEST", "")
+
+    print()
+    print(bold("Public key (paste into the rsync-target user's authorized_keys):"))
+    print()
+    print(pub.read_text().strip())
+    print()
+    print(bold("Operator one-time steps on this host:"))
+    print(dim("  # create a dedicated unix user for rsync ingress"))
+    print("  sudo useradd -m -s /bin/sh iris-rsync")
+    print("  sudo install -d -m 700 -o iris-rsync -g iris-rsync ~iris-rsync/.ssh")
+    print(f"  echo {pub.read_text().strip()!r} | sudo tee -a ~iris-rsync/.ssh/authorized_keys")
+    print("  sudo chown iris-rsync:iris-rsync ~iris-rsync/.ssh/authorized_keys")
+    print("  sudo chmod 600 ~iris-rsync/.ssh/authorized_keys")
+    print(dim("  # create a dir for vulnbox uploads, owned by that user"))
+    print("  sudo install -d -m 755 -o iris-rsync -g iris-rsync /srv/iris-traffic")
+    print()
+    print(bold("Then in .env on this host:"))
+    print(dim(f"  VULNBOX_SSH_DEST=iris-rsync@<this-host>:/srv/iris-traffic"))
+    print(dim(f"  TRAFFIC_DIR_HOST=/srv/iris-traffic"))
+    print(dim(f"  SURICATA_DIR_HOST=/srv/iris-traffic   # so eve-*.json lands where the enricher reads"))
+    print(dim(f"  IRIS_BOOTSTRAP_API_BASE=http://<this-host-wireguard-ip>:5000"))
+    print(dim(f"  IRIS_ADMIN_USER=admin"))
+    print(dim(f"  IRIS_ADMIN_PASS=<set-something-strong>"))
+    print()
+    if not (api_base and admin_pass and ssh_dest):
+        warn("IRIS_BOOTSTRAP_API_BASE / IRIS_ADMIN_PASS / VULNBOX_SSH_DEST not yet set in .env --")
+        warn("the /admin/bootstrap endpoint will return 503 until you fill them in.")
+    else:
+        print(green("Bootstrap endpoint is configured. Add a vulnbox with:"))
+        print(f"  curl -fsSL -u {admin_user}:{admin_pass} {api_base}/api/admin/bootstrap | sudo bash")
+        print()
+    return 0
+
+
+def cmd_add_vulnbox(repo_root: Path, env_path: Path) -> int:
+    """Re-print the curl one-liner for adding (yet another) vulnbox.
+
+    Pure presentation - no state changes. Useful mid-game when ICC drops a
+    fresh VM and you've forgotten the URL or password.
+    """
+    section("Add a vulnbox")
+    if not env_path.is_file():
+        err("No .env on this host. Run iris-setup first.")
+        return 2
+    env = parse_env_file(env_path)
+    api_base = env.get("IRIS_BOOTSTRAP_API_BASE", "")
+    admin_user = env.get("IRIS_ADMIN_USER", "admin")
+    admin_pass = env.get("IRIS_ADMIN_PASS", "")
+    if not (api_base and admin_pass):
+        err("Set IRIS_BOOTSTRAP_API_BASE and IRIS_ADMIN_PASS in .env first.")
+        return 2
+
+    keys_dir = _split_keys_dir(repo_root)
+    if not (keys_dir / "id_ed25519").exists():
+        err(f"No bootstrap keypair at {keys_dir}. Run iris-setup --init-analysis first.")
+        return 2
+
+    print()
+    print(bold("On the new vulnbox (as a user with sudo + docker installed):"))
+    print()
+    print(f"  curl -fsSL -u {admin_user}:{admin_pass} \\")
+    print(f"    {api_base}/api/admin/bootstrap | sudo bash")
+    print()
+    print(dim("Within ~30s the new VM should appear in eve-<hostname>.json on this host"))
+    print(dim("and start pulling local.rules from the Settings page."))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="iris-setup",
@@ -948,6 +1069,22 @@ def main(argv: list[str] | None = None) -> int:
         "--no-color", action="store_true",
         help="Disable ANSI colour output. Useful for piping into `less` or CI logs.",
     )
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument(
+        "--init-analysis", action="store_true",
+        help=(
+            "Split-mode helper. Generate (or reuse) the analysis-box bootstrap "
+            "keypair and print the sysadmin steps + curl one-liner for adding "
+            "vulnboxes. Skips the interactive wizard."
+        ),
+    )
+    mode.add_argument(
+        "--add-vulnbox", action="store_true",
+        help=(
+            "Re-print the curl one-liner for enrolling a new vulnbox using "
+            "values already in .env. Skips the interactive wizard."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.no_color:
@@ -958,6 +1095,11 @@ def main(argv: list[str] | None = None) -> int:
     env_path = repo_root / ".env"
     env_example_path = repo_root / ".env.example"
     configs_path = repo_root / "services" / "api" / "configurations.py"
+
+    if args.init_analysis:
+        return cmd_init_analysis(repo_root, env_path)
+    if args.add_vulnbox:
+        return cmd_add_vulnbox(repo_root, env_path)
 
     if not env_example_path.is_file():
         err(f"Can't find {env_example_path}. Run this wizard from the Iris repo root.")
