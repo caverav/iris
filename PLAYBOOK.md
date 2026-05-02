@@ -1,21 +1,37 @@
-# Iris split-mode playbook
+# Iris split-pull-mode playbook
 
 Day-of-CTF runbook for deploying iris with the analysis stack on one box
-and Suricata-IPS on N vulnboxes. Designed around the ICC topology where
-each service runs on its own VM and you reach the gamenet via WireGuard.
+and Suricata-IPS on N vulnboxes. Designed for ICC-style mesh networks
+where the gamenet drops vulnbox -> player traffic, so the analysis box
+**pulls** eve.json + pcaps over SSH instead of being pushed to.
 
-The wizard automates everything that can be automated; this document is
-the human side - the sysadmin commands you run on each host once, and
-the order of operations on game day.
-
-> **Pre-reqs on every host**: Linux with kernel >= 5.x, Docker (or podman
-> with docker-compose shim), `git`, `curl`. The analysis box additionally
-> needs `ssh-keygen`. WireGuard configured and up *before* you bring up
-> any compose stack.
+> **Pre-reqs on every host**: Linux, kernel >= 5.x, Docker (or podman with
+> the `docker compose` shim), `git`, `curl`. The analysis box additionally
+> needs `ssh-keygen` and `setsid` (already in coreutils on every distro).
+> Bring WireGuard up before any iris command runs.
 
 ---
 
-## 1. Architecture at a glance
+## TL;DR - five commands tomorrow
+
+```sh
+sudo wg-quick up player002                           # bring the gamenet up
+git clone https://github.com/caverav/iris.git ~/iris && cd ~/iris
+
+./iris-setup --init-analysis                         # 4 questions, ~30 s
+docker compose up -d --build                         # one-time build, ~3 min
+
+export IRIS_VULNBOX_PASSWORD='<org-root-password>'   # cache for re-use
+./iris-setup --enroll-vulnbox 10.60.6.1              # × N vulnboxes
+./iris-setup --discover-services                     # confirm + apply
+```
+
+That's it. Iris UI lives at `http://<your-WG-IP>:3000`; fetcher pulls every
+30 s; janitor prunes hourly.
+
+---
+
+## 1. Architecture
 
 ```
                     +-------------------------+
@@ -23,323 +39,337 @@ the order of operations on game day.
                     |                          |
                     |  iris (timescale, api,   |
                     |  frontend, assembler,    |
-                    |  enricher)               |
+                    |  enricher, fetcher,      |
+                    |  janitor)                |
                     |                          |
-                    |  rsync ingress dir:      |
-                    |  /srv/iris-traffic       |
-                    +-----+------------^------+
-                          |            | pull rules (HTTP)
-                          | rsync push |
-                          | (SSH)      |
-       +------------------+------------+-----------------+
-       |                  |            |                 |
-   +---+----+         +---+----+   +---+----+
-   | vulnbox-A |     | vulnbox-B | | vulnbox-N |
-   | Suricata-IPS    | Suricata-IPS| Suricata-IPS|
-   | shipper +       | shipper +   | shipper +   |
-   | rules-puller    | rules-puller| rules-puller|
-   +---------+         +---------+   +---------+
+                    |  pulls FROM each vulnbox |
+                    +--------------+----------+
+                                   |  ssh + rsync
+                                   |  (player -> vulnbox direction)
+       +---------------------------+-------------------------+
+       v                           v                          v
+   +--------+                  +--------+                +--------+
+   | vulnbox-A |              | vulnbox-B |            | vulnbox-N |
+   | Suricata-IPS              | Suricata-IPS          | Suricata-IPS |
+   +---------+                  +---------+              +---------+
 ```
 
-Two channels between every vulnbox and the analysis box, both authed
-against the same WireGuard mesh:
+Two channels between the analysis box and each vulnbox, **both initiated
+from the analysis side**:
 
 | Channel | Direction | Carries |
 |---|---|---|
-| SSH + rsync (port 22) | vulnbox -> analysis | `eve-<host>.json`, `<host>--<pcap>`, `status-<host>.json` |
-| HTTP basic-auth (port 5000) | vulnbox -> analysis | `GET /admin/rules` for the canonical `local.rules` |
+| SSH + rsync (port 22) | analysis -> vulnbox | `eve.json`, rotating `*.pcap` (pulled, namespaced by hostname) |
+| HTTP basic-auth (port 5000) | vulnbox -> analysis (one-shot, at enrollment) | `GET /admin/bootstrap` returns the install script |
 
-The rsync target is a single directory; multiple vulnboxes share it without
-collisions because the shipper namespaces every upload by hostname.
+The vulnbox runs only `suricata-ips`; it never opens an outbound
+connection back to the analysis box during the game. That's what makes
+this work on one-way meshes.
 
 ---
 
-## 2. Analysis-box first-time setup (~10 minutes)
-
-Run on the box that will host the iris stack.
-
-### 2.1 Get the source and run the wizard
+## 2. Analysis-box setup
 
 ```sh
-git clone https://github.com/caverav/iris.git /opt/iris
-cd /opt/iris
-./iris-setup
-```
-
-In the wizard, choose:
-
-- **Deployment mode**: *split - analysis* (the iris core, no local Suricata).
-- **Traffic source**: *rsync* (vulnboxes will push pcaps).
-- **Pcap directory**: `/srv/iris-traffic` (or wherever you want vulnbox uploads to land).
-  - Set both `TRAFFIC_DIR_HOST` *and* `SURICATA_DIR_HOST` to this same path
-    so the enricher reads `eve-*.json` from the same dir the shipper drops
-    them into.
-
-After the wizard finishes, run the split-mode helper:
-
-```sh
+git clone https://github.com/caverav/iris.git ~/iris
+cd ~/iris
 ./iris-setup --init-analysis
 ```
 
-This generates an ed25519 keypair under `iris-keys/` (gitignored)
-and **prints** the sysadmin commands you run as root once. They look like:
+`--init-analysis` asks four short questions (the wizard fills the rest):
+
+1. **Gamenet/WireGuard IP** - the address vulnboxes will reach for
+   `/admin/bootstrap`. Auto-detected from any `wg*`/`player*`/`tun*`
+   interface; press enter to accept.
+2. **Admin password** - leave blank to auto-generate a random one (it
+   prints to the screen). This is the basic-auth credential for every
+   `/admin/*` route, including the rules editor.
+3. **Retention horizons** - pcap age (h), pcap size cap (GB), DB age (h).
+   Defaults: 24 / 50 / 48. Set to 0 to disable that knob.
+4. **Traffic dir** - where pulled eve+pcaps land. Default: `~/iris-traffic`.
+
+The wizard then:
+
+- Generates `iris-keys/id_ed25519{,.pub}` if missing.
+- Creates `<traffic-dir>/{etc,lib/rules,log}` and seeds them from
+  `suricata/etc/suricata.yaml` + `suricata/rules/local.rules`.
+- Writes a complete `.env` with `COMPOSE_PROFILES=iris,fetcher,janitor`.
+- Backs up an existing `.env` to `.env.bak`.
+
+Bring it up:
 
 ```sh
-sudo useradd -m -s /bin/sh iris-rsync
-sudo install -d -m 700 -o iris-rsync -g iris-rsync ~iris-rsync/.ssh
-echo '<the public key the wizard printed>' \
-    | sudo tee -a ~iris-rsync/.ssh/authorized_keys
-sudo chown iris-rsync:iris-rsync ~iris-rsync/.ssh/authorized_keys
-sudo chmod 600 ~iris-rsync/.ssh/authorized_keys
-sudo install -d -m 755 -o iris-rsync -g iris-rsync /srv/iris-traffic
+docker compose up -d --build
 ```
 
-Run them. Verify with:
+After ~3 minutes (image build is the slow part) you should see seven
+containers `Up`: timescale, api, frontend, assembler, enricher, fetcher,
+janitor. Smoke-test:
 
 ```sh
-sudo -u iris-rsync ls -la /srv/iris-traffic
-sudo -u iris-rsync touch /srv/iris-traffic/.writable && sudo -u iris-rsync rm /srv/iris-traffic/.writable
+curl -fsS http://localhost:5000/                                # "Hello, World!"
+curl -fsS -u admin:<pass> http://localhost:5000/admin/rules     # JSON
+curl -fsS -u admin:<pass> http://localhost:5000/admin/bootstrap  # shell script
 ```
 
-### 2.2 Fill in the bootstrap-relevant env vars
-
-Edit `.env` on the analysis box and set (replacing the placeholder values):
-
-```ini
-# Where vulnboxes will reach the api over WireGuard.
-IRIS_BOOTSTRAP_API_BASE=http://10.0.0.1:5000
-
-# Where vulnboxes rsync to. Same WG IP, the iris-rsync user, the dir.
-VULNBOX_SSH_DEST=iris-rsync@10.0.0.1:/srv/iris-traffic
-
-# Make sure these are still aligned with /srv/iris-traffic.
-TRAFFIC_DIR_HOST=/srv/iris-traffic
-SURICATA_DIR_HOST=/srv/iris-traffic
-TRAFFIC_DIR_DOCKER=/traffic
-
-# Pick a strong admin password. Vulnboxes use this to fetch rules; the
-# Settings page uses it for HTTP basic auth on the editor.
-IRIS_ADMIN_USER=admin
-IRIS_ADMIN_PASS=<something-long-and-random>
-```
-
-> The wizard will *not* ask for these (they're split-mode only); set
-> them by hand. Without them, `/admin/bootstrap` returns 503 with a
-> helpful error.
-
-### 2.3 Bring up the stack
-
-```sh
-sudo docker compose --profile iris up -d --build
-sudo docker logs -f iris_api_1     # confirm clean startup
-```
-
-Browse `http://10.0.0.1:3000/settings` (the analysis box's WG IP).
-You'll be prompted for `admin` / `<your password>`. Edit `local.rules`
-once - even if it's just to add a comment - and click *Save & Reload*.
-This populates the file so vulnboxes have something to pull.
+Then browse `http://<your-WG-IP>:3000` for the UI.
 
 ---
 
-## 3. Enrolling a vulnbox (~30 seconds per VM)
+## 3. Vulnbox enrolment
 
-Repeat for every service VM the orgs give you, including ones that
-appear mid-CTF.
-
-```sh
-# On the new vulnbox, as a user with sudo (the gamenet "team" user is
-# usually fine):
-curl -fsSL -u admin:<your-password> \
-    http://10.0.0.1:5000/api/admin/bootstrap | sudo bash
-```
-
-What the bootstrap does, in order:
-
-1. `git clone` iris into `/opt/iris` (the URL is `IRIS_REPO_URL` from the
-   analysis box's env - override if you mirror internally).
-2. Drop the analysis-box SSH private key at
-   `/opt/iris/vulnbox-agent/id_ed25519` (mode 600).
-3. Write a vulnbox-shaped `/opt/iris/.env` with the analysis URL, rsync
-   destination, admin credentials, and `VULNBOX_HOSTNAME=$(hostname)` so
-   uploads are namespaced.
-4. `docker compose --profile suricata-ips --profile vulnbox-agent up -d --build`.
-
-Within ~30s of completion:
-
-- `/srv/iris-traffic/eve-<host>.json` and `<host>--*.pcap` start to appear
-  on the analysis box.
-- The Settings page's *vulnbox sync* panel shows the new host with its
-  loaded ruleset sha256.
-- The enricher picks up alerts for the new VM automatically (it
-  re-resolves the `eve*.json` glob on every 30s tick).
-
-If you forget the URL or password later, run on the analysis box:
+Once per new VM:
 
 ```sh
-./iris-setup --add-vulnbox
+export IRIS_VULNBOX_PASSWORD='<the-org-root-password>'   # one time per shell
+./iris-setup --enroll-vulnbox 10.60.6.1
 ```
 
-It re-prints the curl one-liner using the current `.env`.
+What the subcommand does, behind the curtain:
+
+1. SSHes into `root@10.60.6.1` using the password (via `setsid` +
+   `SSH_ASKPASS`; the password never touches a tty or argv).
+2. Runs `curl -fsSL -u admin:<pass> http://<analysis-WG>:5000/admin/bootstrap | bash`
+   on the remote. The bootstrap script:
+   - Clones iris into `/opt/iris`.
+   - Authorizes the analysis box's *public* key into
+     `/root/.ssh/authorized_keys` (idempotent).
+   - Writes a vulnbox-shaped `.env` (`COMPOSE_PROFILES=suricata-ips`,
+     `NFQUEUE_SKIP_PORTS=22,53,123,1900,5353` so SSH + DNS bypass
+     Suricata entirely).
+   - Brings up `suricata-ips` with the iptables-nft / iptables-legacy
+     auto-detection.
+3. SSHes back (now via key auth - no password needed) to read `hostname`.
+4. Appends `<hostname>=<ip>` to `VULNBOX_LIST` in your `.env`.
+5. Reloads the fetcher: `docker compose --profile fetcher up -d --no-deps fetcher`.
+
+Within ~30 s, files start landing in your traffic dir:
+`eve-<hostname>.json`, `<hostname>--*.pcap`, `status-<hostname>.json`.
+
+If a vulnbox needs `NFQUEUE_IFACE=game` (typical ICC, where the gamenet
+shows up on its own iface name), pre-set it in your shell before the
+enroll call:
+
+```sh
+NFQUEUE_IFACE=game ./iris-setup --enroll-vulnbox 10.60.6.1
+```
+
+The wizard passes that env through into the curl call, and the bootstrap
+script honors it.
 
 ---
 
-## 4. Editing rules during the CTF
+## 4. Service discovery
 
-1. Browse to `/settings` on the analysis box's frontend.
+After enrolling all vulnboxes:
+
+```sh
+./iris-setup --discover-services
+```
+
+Walks every entry in `VULNBOX_LIST`, SSHes (key auth, post-enrollment),
+runs `docker inspect` to find every container with a published port,
+filters out the obvious backing services (mariadb / postgres / redis /
+backend / processor / ...), and proposes a `services = [...]` block:
+
+```
+  found: Dutyfree                  172.18.0.2:80
+  found: Exccel                    172.18.0.4:80
+  found: Skypedia                  172.18.0.5:80
+  found: Skypedia-cli              172.18.0.2:1337
+  found: Mineclicker               172.18.0.2:9999
+
+Proposed services entries:
+    {"ip": "172.18.0.2", "port": 80, "name": "Dutyfree"},
+    ...
+
+Replace `services = [...]` in configurations.py with these? [Y/n]
+```
+
+On confirm, the wizard backs up the current `configurations.py` to
+`.bak`, replaces the `services` block, and `docker compose up -d
+--no-deps --force-recreate api frontend` so the UI picks up the new
+service names immediately.
+
+> Why docker-internal IPs? Suricata captures on the `FORWARD` chain,
+> which is post-DNAT, so the assembler sees `172.18.0.x:80` for HTTP
+> services. Each `(ip, port)` tuple is unique across a typical CTF team
+> so the UI's service lookup disambiguates correctly. If multiple
+> services share `(ip, port)`, rename them in the proposed block before
+> confirming.
+
+---
+
+## 5. Editing rules during the CTF
+
+1. Browse to `/settings` on the frontend.
 2. Edit `local.rules` in the textarea.
-3. Click **Verify** to syntax-check (`suricata -T -S` runs in the api
-   container; takes ~5s; rejects malformed rules without writing them).
-4. Click **Save & Reload**. The api:
-   - Writes the file to `${SURICATA_DIR_HOST}/lib/rules/local.rules`.
-   - Snapshots the previous version into `local.rules.history/<unix-ts>.rules`.
-   - In all-in-one mode, also asks the *local* Suricata to hot-reload via
-     its unix-command socket. In split mode, no local Suricata exists
-     so this step is a no-op.
-5. Each vulnbox's `pull-rules.sh` notices the changed sha256 within
-   `PULL_INTERVAL` seconds (default 10), writes the new file locally,
-   and asks its Suricata to `reload-rules`.
-6. The *vulnbox sync* card flips from amber ("stale rules") to green
-   ("synced") within ~15s.
+3. **Verify** runs `suricata -T -S` in the api container (~5 s); rejects
+   malformed rules without writing them.
+4. **Save & Reload** validates -> snapshots the previous version into
+   `local.rules.history/<unix-ts>.rules` -> writes the new file. In
+   split-pull mode there's no local Suricata to hot-reload (you'll see
+   "reload failed" - expected). The fetcher doesn't propagate rules
+   today; manually push by SSH + `docker exec` if you need a mid-game
+   edit:
 
-To roll back: open the **history** list, click *restore into editor* on
-a previous snapshot, then *Save & Reload* normally. (No one-click rollback
-yet; this keeps "verify before apply" mandatory.)
+```sh
+for entry in $(awk -F= '/^VULNBOX_LIST=/{print $2}' .env | tr ',' ' '); do
+  ip=${entry#*=}
+  scp -i iris-keys/id_ed25519 \
+      $(awk -F= '/^TRAFFIC_DIR_HOST=/{print $2}' .env)/lib/rules/local.rules \
+      root@$ip:/opt/iris/suricata-runtime/lib/rules/local.rules
+  ssh -i iris-keys/id_ed25519 root@$ip \
+      "docker exec iris-suricata-ips-1 kill -USR2 1 || docker compose -f /opt/iris/docker-compose.yml --profile suricata-ips restart suricata-ips"
+done
+```
+
+(A `--push-rules` subcommand is a reasonable next addition; not yet built.)
 
 ---
 
-## 5. Operations cookbook
+## 6. Operations cookbook
 
-### 5.1 A vulnbox got compromised mid-game; revoke its access
+### A vulnbox got compromised mid-game; revoke its access
 
 ```sh
-# Stop trusting the shared SSH key everywhere it can rsync from.
-ssh root@analysis-box
-sudo -u iris-rsync sed -i '/iris-vulnbox-shipper/d' ~iris-rsync/.ssh/authorized_keys
+ssh root@<compromised-ip>                       # one last time
+sed -i '/iris-vulnbox-shipper/d' /root/.ssh/authorized_keys
+exit
 
-# Rotate the bootstrap keypair so future enrolments get a fresh key.
-cd /opt/iris
+# Then on the analysis box: rotate the bootstrap key so future enrollments
+# get a fresh credential. Existing healthy vulnboxes also lose access - go
+# re-enroll them after.
 rm iris-keys/id_ed25519 iris-keys/id_ed25519.pub
 ./iris-setup --init-analysis
-# Re-run the printed authorized_keys commands.
+docker compose up -d --build api               # api re-reads the new pubkey
 
-# Re-enrol the vulnboxes you still trust by re-running the curl one-liner.
+# Re-enroll the still-trusted vulnboxes:
+./iris-setup --enroll-vulnbox <ip>             # × each
 ```
 
-This kicks every vulnbox simultaneously (because they all share the same
-key); they'll need re-enrolment, but the compromise is contained.
+### A vulnbox stopped reporting
 
-### 5.2 A vulnbox stopped reporting
-
-The Settings page's vulnbox card turns red ("silent Nm") once
-`status-<host>.json` is older than 5 minutes. Diagnose on the affected
-VM:
+The Settings page's *vulnbox sync* card turns red ("silent Nm") when
+`status-<hostname>.json` is older than 5 minutes. Diagnose:
 
 ```sh
-sudo docker ps | grep -E 'shipper|suricata-ips'
-sudo docker logs --tail 50 iris_shipper_1
-sudo docker logs --tail 50 iris_suricata-ips_1
+# On analysis box:
+docker logs --tail 50 iris-fetcher-1 | grep -E '<hostname>|fail'
+
+# On the vulnbox (use the key, not the password):
+ssh -i iris-keys/id_ed25519 root@<ip> '
+  docker ps | grep -E "suricata|iris"
+  docker logs --tail 50 iris-suricata-ips-1
+'
 ```
 
-Common causes: WireGuard down on that VM, the analysis box's `iris-rsync`
-user got removed, the local clock drifted by hours and SSH refuses the
-session, or Suricata crashed on a bad rule (in which case the
-`--queue-bypass` keeps traffic flowing but inspection is gone).
+Common causes: WireGuard down on that VM, the bootstrap key got
+rotated and the old pubkey is no longer in `authorized_keys`, the
+vulnbox's clock drifted by hours and SSH refused, or Suricata crashed
+on a bad rule edit (`--queue-bypass` keeps traffic flowing but
+inspection is gone).
 
-### 5.3 Add a permanent IP allow-list around the api
-
-The bootstrap and rules endpoints are auth-gated, but if you want
-defence in depth, restrict the api's port 5000 to the WireGuard
-subnet on the analysis box's host firewall:
+### Backup the DB before risky rule edits
 
 ```sh
-sudo iptables -I INPUT -p tcp --dport 5000 ! -s 10.0.0.0/24 -j DROP
+docker exec iris-timescale-1 \
+  pg_dump -U iris -F c iris > /var/backups/iris-$(date +%F-%H%M).dump
 ```
 
-(WireGuard's own crypto + the basic-auth on `/admin/*` is usually
-plenty; this is belt-and-suspenders.)
+Cron it hourly during the game.
 
-### 5.4 Backup the database before risky rule edits
-
-The whole reason iris exists is the post-attack analysis you'll do
-*after* the CTF. Don't lose that DB:
+### Manually trigger a janitor sweep
 
 ```sh
-sudo docker exec iris_timescale_1 pg_dump -U iris -F c iris > /var/backups/iris-$(date +%F-%H%M).dump
+docker exec iris-janitor-1 /usr/local/bin/janitor.sh &
+sleep 5
+docker logs --tail 20 iris-janitor-1
 ```
 
-Schedule via cron every hour during the game.
+(The container's own loop runs every `JANITOR_INTERVAL_SECONDS`, default
+3600. The default in `--init-analysis` is 600 / 10 min for tighter
+test-day feedback.)
 
 ---
 
-## 6. Validating the deployment before ICC
+## 7. Pre-event validation checklist
 
-Run this checklist a day or two before the event. Each step is ~5
-minutes; the whole pass takes under an hour and catches every bug
-people hit at run time.
+Run a day or two before ICC. Each step is ~5 minutes; the whole pass
+takes under an hour and catches every bug people hit at run time.
 
-1. **Bring up the analysis box** with the wizard, fill in the env vars
-   from §2.2, run the printed sysadmin commands, `docker compose up -d`.
-   - Verify: `curl -u admin:pass http://<wg-ip>:5000/api/admin/rules`
-     returns 200 with `{"path": ..., "content": ...}`.
-   - Verify: `curl -u admin:pass http://<wg-ip>:5000/api/admin/bootstrap`
-     returns the shell script (200, `text/x-shellscript`).
+1. **Stand up the analysis box** with `./iris-setup --init-analysis` +
+   `docker compose up -d --build`. Verify all 7 containers `Up`, the
+   `/admin/rules` JSON returns, and `/admin/bootstrap` returns a shell
+   script.
 
-2. **Spin up two test vulnboxes** (any cheap VMs on the same WireGuard
-   mesh - not the real ICC ones; just rehearsal hosts). Run the curl
-   one-liner on each.
-   - Verify: `ls /srv/iris-traffic` on the analysis box shows
-     `eve-<host>.json` and `status-<host>.json` for both within ~60s.
-   - Verify: Settings page -> vulnbox sync shows both hosts as *synced*
-     with matching sha256s.
+2. **Spin up two test vulnboxes** (any cheap VMs on the same WG mesh --
+   not the real ICC ones; rehearsal hosts). Run
+   `./iris-setup --enroll-vulnbox <ip>` on each. Verify `eve-<host>.json`
+   and `status-<host>.json` appear in the traffic dir within ~60 s, and
+   the *vulnbox sync* card on the Settings page shows both green.
 
-3. **Edit a rule** in the Settings page (e.g. lower a sid's threshold,
-   change `drop` -> `alert`), Verify, Save & Reload.
-   - Verify: both vulnbox cards flip to *synced* on the new sha256
-     within ~15s.
-   - Verify: `sudo docker logs iris_shipper_1` on a vulnbox shows
-     `[pull-rules] new ruleset (sha256=...); writing` followed by
-     `suricata reload-rules: {"return": "OK"}`.
+3. **Run `./iris-setup --discover-services`**. Confirm the proposed
+   block matches reality, accept. Browse the UI: services dropdown
+   should now contain the discovered names.
 
-4. **Test a drop on each vulnbox.** From a third box on the WG mesh:
+4. **Edit a rule** in the Settings page, Verify, Save & Reload. The
+   write happens; reload fails (expected in split-pull). For now,
+   manually push to vulnboxes via the snippet in §5.
+
+5. **Test a drop on each vulnbox.** From a third box on the WG mesh:
    ```sh
-   curl http://<vulnbox-ip>:<service-port>/?p=../../../etc/passwd
+   curl -m 5 'http://<vulnbox-ip>:<service-port>/?p=../../../etc/passwd'
    ```
-   - Verify: the request hangs / RSTs (Suricata drops the GET).
-   - Verify: the analysis box's UI shows the flow tagged
-     `rule:path_traversal` within ~90s. The flow's destination IP is
-     the vulnbox.
+   Expect: client-side timeout (drop). UI shows the flow tagged
+   `rule:path_traversal` within ~90 s.
 
-5. **Kill a vulnbox** (`docker compose --profile suricata-ips --profile vulnbox-agent down`).
-   - Verify: its sync card turns red after 5 min.
-
-6. **Resurrect it** (`docker compose ... up -d`).
-   - Verify: green again within 30s.
+6. **Kill a vulnbox** and check the sync card turns red after ~5 min.
+   Resurrect it; should go green within 30 s.
 
 If all six pass, you're ready.
 
 ---
 
-## 7. Known limitations
+## 8. Knobs you may want
 
-- **Auth is shared-secret.** A single `IRIS_ADMIN_PASS` gates every
-  `/admin/*` route, including the rules editor and the bootstrap key
-  download. If the password leaks, an attacker on the gamenet can install
-  arbitrary drop rules across every vulnbox or harvest the SSH key by
-  curl-ing `/admin/bootstrap`. WireGuard isolation is the moat; pick a
-  long random password.
-- **Rule fan-out is best-effort.** The puller polls every 10s with no
-  ack channel. If a vulnbox is partitioned for an hour, it'll catch up
-  on the next successful poll, but you won't see *which* rule version
-  it had during the gap. For a ground-truth audit, snapshot the dumped
-  pcaps + eve.json - those have the real "what was loaded when each
-  packet arrived" answer.
-- **The bootstrap script clones a public repo.** `IRIS_REPO_URL` defaults
-  to `caverav/iris` on github. If your team mirrors internally,
-  override that env var on the analysis box - vulnboxes will clone from
-  the mirror.
+| Knob | Where | Effect |
+|---|---|---|
+| `IRIS_VULNBOX_PASSWORD=...` | shell env before `--enroll-vulnbox` | Skips the password prompt across N invocations. |
+| `NFQUEUE_IFACE=game` | shell env before `--enroll-vulnbox` | Pins NFQUEUE to the gamenet iface on that vulnbox; no host-side noise. |
+| `NFQUEUE_SKIP_PORTS` | bootstrap-set in vulnbox `.env` | Default `22,53,123,1900,5353` (SSH + noise). Edit per-vulnbox if you have unusual exposed ports. |
+| `IRIS_PCAP_RETENTION_HOURS` / `IRIS_PCAP_MAX_GB` / `IRIS_DB_RETENTION_HOURS` | analysis `.env` | Janitor knobs. 0 = disabled. |
+| `JANITOR_INTERVAL_SECONDS` | analysis `.env` | Sweep cadence. Default 3600; `--init-analysis` sets 600. |
+
+---
+
+## 9. Known limitations
+
+- **Auth is a single shared secret.** `IRIS_ADMIN_PASS` gates every
+  `/admin/*` route, including `/admin/bootstrap` (which returns the
+  embedded analysis-box pubkey). If the password leaks, an attacker on
+  the gamenet can install drop rules and enroll fake vulnboxes. Rotate
+  via `--init-analysis` (overwrites the password) and re-enroll. Pick a
+  strong password - the wizard's auto-generated one is 24 chars of
+  url-safe base64.
+
+- **Bootstrap clones a public github repo.** `IRIS_REPO_URL` defaults to
+  `caverav/iris` on github. If your team mirrors internally, override
+  that env var on the analysis box before enrolling.
+
+- **Rule fan-out to vulnboxes is manual.** Settings-page edits write
+  the canonical `local.rules` on the analysis box but don't auto-push
+  to vulnboxes (the old `pull-rules.sh` was push-mode and is now
+  unused). Use the §5 SSH snippet, or run `./iris-setup --discover-services`
+  again - that one rebuilds the analysis-box services view but doesn't
+  touch vulnboxes.
+
 - **No per-vulnbox rule overrides.** Same `local.rules` everywhere by
-  design. If one service needs a unique rule, ssh in and append to its
-  local `var/lib/suricata/rules/local.rules` - but the puller will
-  overwrite it on the next poll. For real per-VM rules, you'd need a
-  separate file (e.g. `host.rules`) that the puller leaves alone; not
-  built yet.
+  design. If one service needs a unique rule, ssh in and edit
+  `/opt/iris/suricata-runtime/lib/rules/local.rules` directly. The
+  fetcher won't overwrite it.
+
+- **The bootstrap script is a single curl-pipe-bash.** A man-in-the-
+  middle on the gamenet (between the new vulnbox and the analysis box)
+  could substitute it. WireGuard's per-peer crypto is the moat;
+  there's no end-to-end TLS on top.
