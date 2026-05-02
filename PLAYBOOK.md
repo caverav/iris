@@ -81,7 +81,7 @@ After the wizard finishes, run the split-mode helper:
 ./iris-setup --init-analysis
 ```
 
-This generates an ed25519 keypair under `iris-setup/keys/` (gitignored)
+This generates an ed25519 keypair under `iris-keys/` (gitignored)
 and **prints** the sysadmin commands you run as root once. They look like:
 
 ```sh
@@ -218,7 +218,7 @@ sudo -u iris-rsync sed -i '/iris-vulnbox-shipper/d' ~iris-rsync/.ssh/authorized_
 
 # Rotate the bootstrap keypair so future enrolments get a fresh key.
 cd /opt/iris
-rm iris-setup/keys/id_ed25519 iris-setup/keys/id_ed25519.pub
+rm iris-keys/id_ed25519 iris-keys/id_ed25519.pub
 ./iris-setup --init-analysis
 # Re-run the printed authorized_keys commands.
 

@@ -90,7 +90,7 @@ services:
       # socket; share the runtime dir so this socket is visible to api.
       - suricata-control:/run/suricata
       # SSH key embedded in the /admin/bootstrap response (split mode only).
-      - ${IRIS_BOOTSTRAP_KEY_DIR:-./iris-setup/keys}:/run/iris-keys:ro
+      - ${IRIS_BOOTSTRAP_KEY_DIR:-./iris-keys}:/run/iris-keys:ro
     environment:
       TIMESCALE: ${TIMESCALE}
       IRIS_TRAFFIC_DIR: ${TRAFFIC_DIR_DOCKER}

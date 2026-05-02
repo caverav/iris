@@ -929,11 +929,14 @@ def screen_preview_and_write(
 
 
 def _split_keys_dir(repo_root: Path) -> Path:
-    return repo_root / "iris-setup" / "keys"
+    # Note: `iris-setup` itself is a file (this script) at the repo root, so
+    # the keypair lives under iris-keys/ rather than the more obvious
+    # iris-setup/keys/ - otherwise mkdir trips on the file collision.
+    return repo_root / "iris-keys"
 
 
 def _ensure_split_keypair(repo_root: Path) -> tuple[Path, Path]:
-    """Generate (or reuse) the analysis-box ed25519 keypair under iris-setup/keys/."""
+    """Generate (or reuse) the analysis-box ed25519 keypair under iris-keys/."""
     import shutil
     keys_dir = _split_keys_dir(repo_root)
     keys_dir.mkdir(parents=True, exist_ok=True)
