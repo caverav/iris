@@ -7,6 +7,7 @@ QUEUE_NUM="${NFQUEUE_NUM:-0}"
 IFACE="${NFQUEUE_IFACE:-}"
 CHAINS="${NFQUEUE_CHAINS:-INPUT,FORWARD,DOCKER-USER}"
 IPV6="${NFQUEUE_IPV6:-1}"
+SKIP_PORTS="${NFQUEUE_SKIP_PORTS-22,53,123,1900,5353}"
 
 egress_chain() {
   case "$1" in
@@ -69,13 +70,28 @@ remove_jump() {
   done
 }
 
+remove_skip() {
+  local cmd="$1"
+  local table="$2"
+  local chain="$3"
+  if [ -z "$SKIP_PORTS" ]; then return 0; fi
+  for proto in tcp udp; do
+    while $cmd -t "$table" -C "$chain" -p "$proto" -m multiport --ports "$SKIP_PORTS" -j RETURN 2>/dev/null; do
+      $cmd -t "$table" -D "$chain" -p "$proto" -m multiport --ports "$SKIP_PORTS" -j RETURN
+      echo "[iptables-teardown] removed skip from $cmd $table:$chain $proto"
+    done
+  done
+}
+
 IFS=',' read -r -a chains <<< "$CHAINS"
 for spec in "${chains[@]}"; do
   spec_trimmed="$(echo "$spec" | tr -d '[:space:]')"
   [ -z "$spec_trimmed" ] && continue
   read -r table chain <<< "$(parse_spec "$spec_trimmed")"
+  remove_skip "$IPT4" "$table" "$chain"
   remove_jump "$IPT4" "$table" "$chain"
   if [ "$IPV6" = "1" ]; then
+    remove_skip "$IPT6" "$table" "$chain"
     remove_jump "$IPT6" "$table" "$chain"
   fi
 done
