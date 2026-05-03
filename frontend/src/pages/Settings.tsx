@@ -10,11 +10,18 @@ import { API_BASE_PATH } from "../const";
 
 type HistoryEntry = { name: string; timestamp: number; size: number };
 type RulesPayload = { path: string; content: string };
+type VulnboxPushResult = {
+  hostname: string;
+  ip: string;
+  ok: boolean;
+  message: string;
+};
 type ApplyResult = {
   ok: boolean;
   stage: "validate" | "reload";
   output: string;
   validate_output?: string;
+  vulnboxes?: VulnboxPushResult[];
 };
 type ValidateResult = { ok: boolean; output: string };
 type VulnboxStatus = {
@@ -215,12 +222,25 @@ export function Settings() {
         <div className={`settings-out ${applyOut.ok ? "ok" : "err"}`}>
           <strong>
             {applyOut.ok
-              ? "saved & reloaded OK"
+              ? applyOut.vulnboxes && applyOut.vulnboxes.length > 0
+                ? `saved + pushed to ${applyOut.vulnboxes.filter((v) => v.ok).length}/${applyOut.vulnboxes.length} vulnboxes`
+                : "saved & reloaded OK"
               : applyOut.stage === "validate"
               ? "validation failed - file not written"
-              : "saved, reload failed"}
+              : "saved, fan-out had failures"}
           </strong>
-          <pre>{applyOut.output || "(no output)"}</pre>
+          <pre>{applyOut.output || "(no local-suricata reload; see vulnbox status below)"}</pre>
+          {applyOut.vulnboxes && applyOut.vulnboxes.length > 0 && (
+            <ul className="settings-fanout">
+              {applyOut.vulnboxes.map((v) => (
+                <li key={v.hostname} className={v.ok ? "ok" : "err"}>
+                  <span className="h">{v.hostname}</span>
+                  <span className="b">{v.ip}</span>
+                  <span className="m">{v.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       )}
 

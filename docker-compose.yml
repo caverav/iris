@@ -114,6 +114,11 @@ services:
       IRIS_REPO_URL: ${IRIS_REPO_URL:-https://github.com/caverav/iris.git}
       IRIS_REPO_REF: ${IRIS_REPO_REF:-master}
       VULNBOX_SSH_DEST: ${VULNBOX_SSH_DEST:-}
+      # Fan-out target list for the Settings page's Save & Reload, plus the
+      # SSH user the api uses when pushing rules. Same shape as the
+      # fetcher's VULNBOX_LIST (host=ip, comma-separated).
+      VULNBOX_LIST: ${VULNBOX_LIST:-}
+      VULNBOX_SSH_USER: ${VULNBOX_SSH_USER:-root}
 
   flagids:
     profiles: ["iris"]

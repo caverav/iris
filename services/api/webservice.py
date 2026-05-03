@@ -346,12 +346,22 @@ def admin_rules_apply():
 
     rules_admin.write_rules(content)
     reload = rules_admin.reload_rules()
+
+    # Fan-out to every enrolled vulnbox. In split-pull mode the local
+    # `reload` above always fails (no Suricata on the analysis box),
+    # which is fine: the actual Suricatas live on the vulnboxes and the
+    # fan-out below is what makes Save & Reload meaningful.
+    fanout = rules_admin.push_rules_to_vulnboxes()
+    overall_ok = reload.ok or (
+        bool(fanout) and all(r.ok for r in fanout)
+    )
     return return_json_response(
         {
-            "ok": reload.ok,
+            "ok": overall_ok,
             "stage": "reload",
             "output": reload.message,
             "validate_output": val.output,
+            "vulnboxes": [dataclasses.asdict(r) for r in fanout],
         }
     )
 

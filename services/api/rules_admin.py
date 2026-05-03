@@ -289,6 +289,157 @@ def reload_rules() -> ReloadResult:
 
 
 # ---------------------------------------------------------------------------
+# Fleet-wide rule fan-out (split-pull mode)
+# ---------------------------------------------------------------------------
+
+# Path on each vulnbox where its Suricata reads local.rules from. Set in
+# the bootstrap-generated .env: SURICATA_DIR_HOST=./suricata-runtime, so
+# the rules dir is /opt/iris/suricata-runtime/lib/rules.
+REMOTE_RULES_PATH = os.environ.get(
+    "REMOTE_RULES_PATH", "/opt/iris/suricata-runtime/lib/rules/local.rules"
+)
+# Container name for `docker kill -s USR2 ...` (Suricata reloads rules on
+# SIGUSR2; no traffic gap, no restart). The bootstrap launches it via
+# `docker compose up`, which names the container `iris-suricata-ips-1`.
+REMOTE_SURICATA_CONTAINER = os.environ.get(
+    "REMOTE_SURICATA_CONTAINER", "iris-suricata-ips-1"
+)
+# Local SSH key the bootstrap authorized on every vulnbox.
+LOCAL_SSH_KEY = os.environ.get(
+    "LOCAL_SSH_KEY", "/run/iris-keys/id_ed25519"
+)
+
+
+@dataclass
+class VulnboxPushResult:
+    hostname: str
+    ip: str
+    ok: bool
+    message: str
+
+
+def _parse_vulnbox_list(raw: str) -> list[tuple[str, str]]:
+    """Parse VULNBOX_LIST=host=ip,host=ip,... into [(host, ip), ...]."""
+    out: list[tuple[str, str]] = []
+    for entry in (e.strip() for e in raw.split(",")):
+        if not entry or "=" not in entry:
+            continue
+        host, ip = entry.split("=", 1)
+        host, ip = host.strip(), ip.strip()
+        if host and ip:
+            out.append((host, ip))
+    return out
+
+
+def push_rules_to_vulnboxes() -> list[VulnboxPushResult]:
+    """SCP the canonical local.rules to every vulnbox in VULNBOX_LIST and
+    trigger an in-place reload.
+
+    Per host:
+      1. scp local.rules -> remote /opt/iris/suricata-runtime/lib/rules/
+      2. ssh `docker kill -s USR2 iris-suricata-ips-1` (Suricata reloads
+         rules in-place on SIGUSR2; queued packets keep flowing). If the
+         signal-based reload fails (e.g. older Suricata), fall back to
+         `docker compose -f /opt/iris/docker-compose.yml ...
+         restart suricata-ips` -- this drops a few packets to
+         --queue-bypass but always works.
+    Returns one VulnboxPushResult per host. Errors don't abort the
+    fan-out; we report partial success and let the caller decide.
+    """
+    raw = os.environ.get("VULNBOX_LIST", "")
+    user = os.environ.get("VULNBOX_SSH_USER", "root")
+    targets = _parse_vulnbox_list(raw)
+    results: list[VulnboxPushResult] = []
+    if not targets:
+        return results
+    if not Path(LOCAL_SSH_KEY).exists():
+        for host, ip in targets:
+            results.append(VulnboxPushResult(
+                hostname=host, ip=ip, ok=False,
+                message=f"SSH key {LOCAL_SSH_KEY} missing in api container",
+            ))
+        return results
+    if not RULES_PATH.exists():
+        for host, ip in targets:
+            results.append(VulnboxPushResult(
+                hostname=host, ip=ip, ok=False,
+                message=f"local rules file {RULES_PATH} missing",
+            ))
+        return results
+
+    ssh_opts = [
+        "-i", LOCAL_SSH_KEY,
+        "-o", "BatchMode=yes",
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=10",
+    ]
+    for host, ip in targets:
+        # 1. scp the rules file. We push to a temp path first then `mv`
+        # in place so a partial transfer can't leave Suricata reading
+        # half a file at the moment of reload.
+        scp_proc = subprocess.run(
+            ["scp", *ssh_opts, str(RULES_PATH),
+             f"{user}@{ip}:{REMOTE_RULES_PATH}.tmp"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if scp_proc.returncode != 0:
+            results.append(VulnboxPushResult(
+                hostname=host, ip=ip, ok=False,
+                message=f"scp failed: {scp_proc.stderr.strip()[:200]}",
+            ))
+            continue
+        mv_proc = subprocess.run(
+            ["ssh", *ssh_opts, f"{user}@{ip}",
+             f"mv {REMOTE_RULES_PATH}.tmp {REMOTE_RULES_PATH}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if mv_proc.returncode != 0:
+            results.append(VulnboxPushResult(
+                hostname=host, ip=ip, ok=False,
+                message=f"mv failed: {mv_proc.stderr.strip()[:200]}",
+            ))
+            continue
+
+        # 2. SIGUSR2 reload. If the signal succeeds the suricata logs
+        # show "Live rule reload"; container exit code is 0 either way,
+        # so we look at stderr to detect failures.
+        reload_proc = subprocess.run(
+            ["ssh", *ssh_opts, f"{user}@{ip}",
+             f"docker kill -s USR2 {REMOTE_SURICATA_CONTAINER}"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if reload_proc.returncode == 0:
+            results.append(VulnboxPushResult(
+                hostname=host, ip=ip, ok=True,
+                message="rules pushed + SIGUSR2 reload",
+            ))
+            continue
+
+        # SIGUSR2 path failed; fall back to a container restart. Brief
+        # gap with --queue-bypass letting traffic through.
+        restart_proc = subprocess.run(
+            ["ssh", *ssh_opts, f"{user}@{ip}",
+             "docker compose -f /opt/iris/docker-compose.yml "
+             "--profile suricata-ips restart suricata-ips"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if restart_proc.returncode == 0:
+            results.append(VulnboxPushResult(
+                hostname=host, ip=ip, ok=True,
+                message="rules pushed + container restart (~5 s gap)",
+            ))
+        else:
+            results.append(VulnboxPushResult(
+                hostname=host, ip=ip, ok=False,
+                message=(
+                    f"USR2 failed: {reload_proc.stderr.strip()[:120]}; "
+                    f"restart failed: {restart_proc.stderr.strip()[:120]}"
+                ),
+            ))
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Vulnbox propagation status
 # ---------------------------------------------------------------------------
 

@@ -1,9 +1,11 @@
 FROM python:3.10
 
-# `suricata -T -S <file>` is used by the Settings page to syntax-check
-# proposed rules before they're written to local.rules and reloaded.
+# suricata: `-T -S <file>` validates proposed rules before they're saved.
+# openssh-client: scp the canonical rules file to every vulnbox in
+#   VULNBOX_LIST and remote-trigger Suricata's hot reload after a
+#   Save & Reload from the Settings page.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends suricata \
+    && apt-get install -y --no-install-recommends suricata openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 COPY ./requirements.txt /app/requirements.txt
