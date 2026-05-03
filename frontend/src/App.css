@@ -1040,6 +1040,46 @@
   letter-spacing: 0.2em;
   text-transform: uppercase;
 }
+.settings-hint {
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink-muted);
+}
+.settings-hint-ok {
+  color: oklch(0.72 0.18 150);
+  border-color: oklch(0.72 0.18 150 / 0.4);
+}
+.settings-spinner {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  vertical-align: middle;
+  animation: settings-spin 0.8s linear infinite;
+}
+@keyframes settings-spin {
+  to { transform: rotate(360deg); }
+}
+.settings-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left-width: 3px;
+  border-left-color: var(--acc);
+  border-radius: 4px;
+  background: var(--bg-1);
+  font-size: 12px;
+}
+.settings-banner strong { display: block; margin-bottom: 2px; }
+.settings-banner .b { color: var(--ink-muted); font-size: 11px; }
+/* keep buttons from shrinking when their label changes mid-spin */
+.settings-actions .ctl { min-width: 92px; justify-content: center; }
+.settings-actions .ctl[disabled] { cursor: not-allowed; opacity: 0.6; }
 .settings-editor {
   flex: 1;
   min-height: 360px;

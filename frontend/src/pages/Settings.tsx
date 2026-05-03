@@ -58,6 +58,19 @@ async function adminFetch(path: string, init: RequestInit = {}): Promise<Respons
   return fetch(`${API_BASE_PATH}${path}`, { ...init, headers });
 }
 
+function Spinner() {
+  // Inline 12px spinner used inside ctl buttons. Matches the existing
+  // accent colour so it visually fits on both .ctl and .ctl.accent.
+  return (
+    <span className="settings-spinner" aria-hidden="true">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="3" strokeOpacity="0.25" />
+        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+      </svg>
+    </span>
+  );
+}
+
 function CredsForm({ onAuthed }: { onAuthed: () => void }) {
   const [user, setUser] = useState("admin");
   const [pass, setPass] = useState("");
@@ -102,6 +115,10 @@ export function Settings() {
   const [validateOut, setValidateOut] = useState<ValidateResult | null>(null);
   const [applyOut, setApplyOut] = useState<ApplyResult | null>(null);
   const [propagation, setPropagation] = useState<Propagation | null>(null);
+  // Track which exact content was last verified OK. Save & Reload is
+  // disabled unless the editor matches that content - any edit after a
+  // successful verify clears this and forces a re-verify.
+  const [verifiedContent, setVerifiedContent] = useState<string | null>(null);
 
   const loadPropagation = useCallback(async () => {
     const r = await adminFetch("/admin/rules/propagation");
@@ -167,47 +184,115 @@ export function Settings() {
           <button
             className="ctl"
             disabled={busy !== "" || !dirty}
+            title={
+              busy === "validate" ? "running suricata -T..."
+              : !dirty ? "no changes to verify"
+              : "syntax-check the current editor contents"
+            }
             onClick={async () => {
               setBusy("validate");
               setApplyOut(null);
-              const r = await adminFetch("/admin/rules/validate", {
-                method: "POST",
-                body: JSON.stringify({ content }),
-              });
-              setValidateOut(await r.json());
-              setBusy("");
+              setValidateOut(null);
+              const snapshot = content;
+              try {
+                const r = await adminFetch("/admin/rules/validate", {
+                  method: "POST",
+                  body: JSON.stringify({ content: snapshot }),
+                });
+                const data: ValidateResult = await r.json();
+                setValidateOut(data);
+                if (data.ok) setVerifiedContent(snapshot);
+                else setVerifiedContent(null);
+              } finally {
+                setBusy("");
+              }
             }}
-          >verify</button>
+          >
+            {busy === "validate" ? <><Spinner /> verifying...</> : "verify"}
+          </button>
           <button
             className="ctl accent"
-            disabled={busy !== "" || !dirty}
+            disabled={busy !== "" || !dirty || verifiedContent !== content}
+            title={
+              busy === "apply" ? "saving + pushing to vulnboxes..."
+              : !dirty ? "no changes to save"
+              : verifiedContent !== content ? "verify the current edits first"
+              : "save, hot-reload Suricata on every vulnbox"
+            }
             onClick={async () => {
-              if (!confirm("Save and live-reload Suricata?")) return;
+              if (!confirm("Save and reload Suricata on every vulnbox?")) return;
               setBusy("apply");
               setValidateOut(null);
-              const r = await adminFetch("/admin/rules/apply", {
-                method: "POST",
-                body: JSON.stringify({ content }),
-              });
-              const data: ApplyResult = await r.json();
-              setApplyOut(data);
-              if (data.ok || data.stage === "reload") {
-                // file was written; refresh original + history
-                setOriginal(content);
-                const h = await adminFetch("/admin/rules/history");
-                if (h.ok) setHistory((await h.json()).entries);
+              const snapshot = content;
+              try {
+                const r = await adminFetch("/admin/rules/apply", {
+                  method: "POST",
+                  body: JSON.stringify({ content: snapshot }),
+                });
+                const data: ApplyResult = await r.json();
+                setApplyOut(data);
+                if (data.ok || data.stage === "reload") {
+                  setOriginal(snapshot);
+                  // After a successful save the textarea now matches
+                  // disk; that disk content was just validated.
+                  setVerifiedContent(snapshot);
+                  const h = await adminFetch("/admin/rules/history");
+                  if (h.ok) setHistory((await h.json()).entries);
+                  loadPropagation();
+                }
+              } finally {
+                setBusy("");
               }
-              setBusy("");
             }}
-          >save &amp; reload</button>
+          >
+            {busy === "apply"
+              ? <><Spinner /> saving + pushing...</>
+              : "save & reload"}
+          </button>
           {dirty && <span className="settings-dirty">unsaved</span>}
+          {dirty && verifiedContent !== content && (
+            <span className="settings-hint">verify required</span>
+          )}
+          {dirty && verifiedContent === content && (
+            <span className="settings-hint settings-hint-ok">verified</span>
+          )}
         </div>
       </div>
+
+      {busy === "apply" && (
+        <div className="settings-banner">
+          <Spinner />
+          <span>
+            <strong>saving + pushing to vulnboxes...</strong>
+            <span className="b">
+              SCP + reload Suricata on every host in <code>VULNBOX_LIST</code>.
+              Takes a few seconds per host.
+            </span>
+          </span>
+        </div>
+      )}
+      {busy === "validate" && (
+        <div className="settings-banner">
+          <Spinner />
+          <span>
+            <strong>verifying...</strong>
+            <span className="b">
+              Running <code>suricata -T -S</code> in the api container; usually
+              5 - 15 s.
+            </span>
+          </span>
+        </div>
+      )}
 
       <textarea
         className="settings-editor"
         value={content}
-        onChange={(e) => setContent(e.target.value)}
+        onChange={(e) => {
+          setContent(e.target.value);
+          // Editing invalidates a previous verify - the user must re-verify.
+          if (verifiedContent !== null) setVerifiedContent(null);
+        }}
+        disabled={busy === "apply"}
         spellCheck={false}
         wrap="off"
       />
