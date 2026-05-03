@@ -28,11 +28,17 @@ SSH_USER="${SSH_USER:-root}"
 SSH_KEY="${SSH_KEY:-/keys/id_ed25519}"
 FETCH_INTERVAL="${FETCH_INTERVAL:-30}"
 TRAFFIC_DIR="${TRAFFIC_DIR:-/traffic}"
+# eve.json files land in the `log/` subdir to match where Suricata would
+# have written them if it ran locally. The enricher's mount maps
+# ${SURICATA_DIR_HOST}/log -> /suricata, so eve-<host>.json shows up at
+# /suricata/eve-<host>.json on the enricher side and matches the
+# /suricata/eve*.json glob it watches.
+EVE_DIR="${EVE_DIR:-${TRAFFIC_DIR}/log}"
 REMOTE_PCAP_DIR="${REMOTE_PCAP_DIR:-/opt/iris/traffic}"
 REMOTE_EVE="${REMOTE_EVE:-/opt/iris/suricata-runtime/log/eve.json}"
 SSH_OPTS="${SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10}"
 
-mkdir -p "$TRAFFIC_DIR"
+mkdir -p "$TRAFFIC_DIR" "$EVE_DIR"
 ssh_cmd="ssh -i $SSH_KEY $SSH_OPTS"
 
 # Stage area for hostname-prefix renaming. Living on /tmp so it's tmpfs.
@@ -46,10 +52,11 @@ fetch_one() {
   mkdir -p "$stage"
 
   # eve.json: append-verify lets us resume across restarts and grow the
-  # local copy as the remote one grows.
+  # local copy as the remote one grows. Lands in EVE_DIR (default
+  # ${TRAFFIC_DIR}/log) which is what the enricher's mount expects.
   rsync -az --append-verify -e "$ssh_cmd" \
     "${SSH_USER}@${ip}:${REMOTE_EVE}" \
-    "$TRAFFIC_DIR/eve-${host}.json" \
+    "$EVE_DIR/eve-${host}.json" \
     || echo "[fetcher] $host eve fetch failed (will retry)"
 
   # pcaps: append-verify treats Suricata's rotated pcap files as the
