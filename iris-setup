@@ -1174,12 +1174,17 @@ def cmd_init_analysis(repo_root: Path, env_path: Path) -> int:
 
 
 def _ssh_with_password(host: str, user: str, password: str, command: str,
-                       timeout: int = 300) -> "subprocess.CompletedProcess":
+                       timeout: int = 300,
+                       input_data: bytes | None = None) -> "subprocess.CompletedProcess":
     """Run a remote command over SSH, supplying the password via SSH_ASKPASS.
 
     Uses the standard setsid + SSH_ASKPASS trick so we never hand the
     password to a tty. The askpass shim lives in a 0700 tempdir and is
     deleted on return regardless of outcome.
+
+    If `input_data` is given, it is streamed to the remote stdin (so e.g.
+    `command="bash -s"` runs a script we already have on this host - no
+    vulnbox -> analysis-box reachability required).
     """
     import subprocess, tempfile, shlex
     tmp = Path(tempfile.mkdtemp(prefix="iris-askpass-"))
@@ -1191,16 +1196,34 @@ def _ssh_with_password(host: str, user: str, password: str, command: str,
         env["SSH_ASKPASS"] = str(askpass)
         env["SSH_ASKPASS_REQUIRE"] = "force"
         env.setdefault("DISPLAY", ":0")
-        return subprocess.run(
-            [
+        # When piping stdin we can't use setsid -w, since setsid disconnects
+        # the controlling terminal AND the stdin we're trying to write to.
+        # Instead pass `-T` (no pty) so ssh forwards stdin to the remote.
+        if input_data is not None:
+            argv = [
+                "ssh", "-T",
+                "-o", "StrictHostKeyChecking=accept-new",
+                "-o", "ConnectTimeout=10",
+                "-o", "NumberOfPasswordPrompts=1",
+                "-o", "PreferredAuthentications=password,keyboard-interactive,publickey",
+                f"{user}@{host}",
+                command,
+            ]
+        else:
+            argv = [
                 "setsid", "-w", "ssh",
                 "-o", "StrictHostKeyChecking=accept-new",
                 "-o", "ConnectTimeout=10",
                 "-o", "NumberOfPasswordPrompts=1",
                 f"{user}@{host}",
                 command,
-            ],
-            env=env, capture_output=True, text=True, timeout=timeout,
+            ]
+        return subprocess.run(
+            argv,
+            env=env,
+            input=input_data,
+            capture_output=True,
+            timeout=timeout,
         )
     finally:
         try:
@@ -1230,16 +1253,24 @@ def _ssh_with_key(host: str, user: str, key: Path, command: str,
 
 
 def _append_vulnbox(env_path: Path, host: str, ip: str) -> None:
-    """Add `host=ip` to VULNBOX_LIST in env, preserving order, dedup'd."""
+    """Add `host=ip` to VULNBOX_LIST. Deduped by IP so a re-enroll with
+    a corrected hostname replaces a previous (failed) tag for the same
+    IP rather than producing two entries the fetcher pulls in parallel."""
     text = env_path.read_text() if env_path.is_file() else ""
     pat = re.compile(r"^VULNBOX_LIST=(.*)$", re.MULTILINE)
     m = pat.search(text)
     current = m.group(1).strip() if m else ""
     entries: list[str] = [e for e in (x.strip() for x in current.split(",")) if e]
-    new_entry = f"{host}={ip}"
-    by_host = {e.split("=", 1)[0]: e for e in entries if "=" in e}
-    by_host[host] = new_entry
-    new_value = ",".join(by_host.values())
+    # Drop any prior entry for this ip, then append the fresh one.
+    kept: list[str] = []
+    for e in entries:
+        if "=" not in e:
+            continue
+        if e.split("=", 1)[1] == ip:
+            continue
+        kept.append(e)
+    kept.append(f"{host}={ip}")
+    new_value = ",".join(kept)
     if m:
         text = pat.sub(f"VULNBOX_LIST={new_value}", text, count=1)
     else:
@@ -1294,32 +1325,57 @@ def cmd_enroll_vulnbox(repo_root: Path, env_path: Path, ip: str) -> int:
         err("Empty password.")
         return 2
 
-    # 3. Run the bootstrap remotely. We pipe the curl through bash on the
-    # remote - the analysis box's api is reachable from the vulnbox over
-    # the gamenet at the URL we already baked into .env.
-    cmd = (
-        f"curl -fsSL -u {admin_user}:{admin_pass} {api_base}/admin/bootstrap "
-        "| bash"
+    # 3. Fetch /admin/bootstrap LOCALLY (analysis box -> its own api) and
+    #    stream it over SSH stdin to the vulnbox. Most CTF gamenets are
+    #    one-way (player -> vulnbox only), so the older "vulnbox curls
+    #    back" design failed silently when the vulnbox couldn't reach us.
+    import urllib.request, urllib.error, base64, ssl
+    auth = base64.b64encode(f"{admin_user}:{admin_pass}".encode()).decode()
+    # api_base might be the gamenet IP that vulnboxes use; locally we
+    # can always reach 127.0.0.1:5000 since the api container publishes
+    # there via docker compose.
+    local_url = "http://127.0.0.1:5000/admin/bootstrap"
+    req = urllib.request.Request(
+        local_url, headers={"Authorization": f"Basic {auth}"}
     )
-    info(f"Running bootstrap on {user}@{ip} ...")
     try:
-        proc = _ssh_with_password(ip, user, password, cmd, timeout=600)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            script_bytes = resp.read()
+    except urllib.error.HTTPError as e:
+        err(f"GET {local_url} returned {e.code}: is the api up + admin password right?")
+        return 2
+    except urllib.error.URLError as e:
+        err(f"GET {local_url} failed: {e.reason}. Is `docker compose up -d` done?")
+        return 2
+
+    # Add `set -o pipefail` so the outer ssh exit reflects the script's
+    # actual outcome (the rendered script already starts with set -euo
+    # pipefail; this is just belt-and-suspenders).
+    info(f"Streaming bootstrap to {user}@{ip} (~3 min for first-time image build) ...")
+    try:
+        proc = _ssh_with_password(
+            ip, user, password, "bash -s",
+            input_data=script_bytes,
+            timeout=900,
+        )
     except FileNotFoundError as e:
         err(f"missing tool: {e} (need ssh + setsid)")
         return 2
     except subprocess.TimeoutExpired:
-        err("bootstrap timed out (10 min). Check the vulnbox manually.")
+        err("bootstrap timed out (15 min). Check the vulnbox manually.")
         return 2
 
+    out = proc.stdout.decode("utf-8", errors="replace")
+    errout = proc.stderr.decode("utf-8", errors="replace")
     if proc.returncode != 0:
         err(f"bootstrap exited {proc.returncode}")
-        if proc.stderr.strip():
-            print(dim(proc.stderr.strip()))
-        if proc.stdout.strip():
-            print(dim(proc.stdout.strip()[-2000:]))
+        if errout.strip():
+            print(dim(errout.strip()[-1500:]))
+        if out.strip():
+            print(dim(out.strip()[-1500:]))
         return 2
 
-    print(dim(proc.stdout.strip()[-1500:]))
+    print(dim(out.strip()[-1500:]))
 
     # 4. Read hostname via key auth (bootstrap dropped our pubkey).
     try:
