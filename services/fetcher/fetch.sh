@@ -52,10 +52,15 @@ fetch_one() {
     "$TRAFFIC_DIR/eve-${host}.json" \
     || echo "[fetcher] $host eve fetch failed (will retry)"
 
-  # pcaps: --ignore-existing skips already-pulled rotated files. Stage
-  # under stage/ then re-link to TRAFFIC_DIR with hostname prefix so two
-  # vulnboxes can't collide on log.pcap.<unix-ts>.
-  rsync -az --ignore-existing -e "$ssh_cmd" \
+  # pcaps: append-verify treats Suricata's rotated pcap files as the
+  # append-only logs they actually are. New rotated files (which don't
+  # exist locally) are pulled in full; the currently-active file (which
+  # Suricata is still writing to) is grown by appending the new bytes
+  # only. --ignore-existing here was a bug: it pulled each pcap exactly
+  # once and then never updated it, so any traffic logged after the
+  # first fetch was invisible to the analysis box even though the file
+  # grew to 100MB on the vulnbox.
+  rsync -az --append-verify -e "$ssh_cmd" \
     "${SSH_USER}@${ip}:${REMOTE_PCAP_DIR}/" \
     "$stage/" \
     || echo "[fetcher] $host pcap fetch failed (will retry)"
