@@ -48,8 +48,8 @@ drop tcp any any -> $HOME_NET any ( \
   sid:9000011; rev:1;)
 
 alert tcp any any -> $HOME_NET any ( \
-  msg:"IRIS RCE sentinel (;id;)"; \
-  flow:to_server,established; content:";id;"; \
+  msg:"IRIS RCE sentinel id command"; \
+  flow:to_server,established; content:"|3b|id|3b|"; \
   metadata: tag rce; \
   classtype:attempted-admin; \
   sid:9000012; rev:1;)
