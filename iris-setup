@@ -1545,16 +1545,23 @@ def cmd_discover_services(repo_root: Path, env_path: Path, configs_path: Path) -
     configs_path.write_text(new_text)
     info(f"Wrote {configs_path}")
 
+    # `--build` is required: configurations.py is baked into the api image
+    # via `COPY . /app` in services/api/Dockerfile-api, so a plain
+    # `--force-recreate` would just restart the container with the stale
+    # image and the UI would keep serving the previous services list.
+    info("Rebuilding api image with the new services list (~30s) ...")
     cp = subprocess.run(
         ["docker", "compose", "--profile", "iris", "up", "-d", "--no-deps",
-         "--force-recreate", "api", "frontend"],
+         "--build", "--force-recreate", "api", "frontend"],
         cwd=repo_root, capture_output=True, text=True,
     )
     if cp.returncode == 0:
-        info("api + frontend recreated.")
+        info("api + frontend rebuilt + recreated.")
     else:
-        warn("Couldn't recreate containers. Run manually:")
-        print(dim(f"  cd {repo_root} && docker compose up -d --no-deps --force-recreate api frontend"))
+        warn("Couldn't rebuild containers. Run manually:")
+        print(dim(f"  cd {repo_root} && docker compose up -d --no-deps --build --force-recreate api frontend"))
+        if cp.stderr.strip():
+            print(dim(cp.stderr.strip()[-400:]))
     return 0
 
 
