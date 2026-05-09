@@ -65,6 +65,51 @@ def return_text_response(object, **kwargs):
     return Response(object, mimetype="text/plain", **kwargs)
 
 
+# ---------------------------------------------------------------------------
+# Optional HTTP basic auth for the entire API
+# ---------------------------------------------------------------------------
+#
+# When IRIS_AUTH_USER and IRIS_AUTH_PASS are both set, every request to
+# the api is gated by HTTP basic auth (browsers prompt on first /api/*
+# call and cache creds for the origin). When unset, the api is open --
+# the project's historical default. /admin/* keeps its stricter admin
+# gate on top, so admin creds and viewer creds can differ.
+
+import hmac
+from base64 import b64decode
+
+
+def _basic_auth_challenge() -> Response:
+    return Response(
+        "auth required",
+        status=401,
+        headers={"WWW-Authenticate": 'Basic realm="iris"'},
+    )
+
+
+@application.before_request
+def _basic_auth_gate():
+    user = os.environ.get("IRIS_AUTH_USER", "")
+    pwd = os.environ.get("IRIS_AUTH_PASS", "")
+    if not (user and pwd):
+        return None  # auth disabled (default)
+    # /admin/* has its own require_admin decorator with separate creds.
+    # Don't double-gate -- vulnboxes calling /admin/bootstrap should not
+    # need viewer creds, only the admin password the wizard handed them.
+    if request.path.startswith("/admin/"):
+        return None
+    header = request.headers.get("Authorization", "")
+    if not header.startswith("Basic "):
+        return _basic_auth_challenge()
+    try:
+        u, p = b64decode(header[6:]).decode("utf-8").split(":", 1)
+    except Exception:
+        return _basic_auth_challenge()
+    if not (hmac.compare_digest(u, user) and hmac.compare_digest(p, pwd)):
+        return _basic_auth_challenge()
+    return None
+
+
 @application.route("/")
 def hello_world():
     return "Hello, World!"

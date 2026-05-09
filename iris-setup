@@ -1019,6 +1019,10 @@ FLAG_VALIDATOR_TEAM={team_id}
 IRIS_ADMIN_USER=admin
 IRIS_ADMIN_PASS={admin_pass}
 
+# Optional viewer-side basic auth on the whole api. Empty = open.
+IRIS_AUTH_USER={viewer_user}
+IRIS_AUTH_PASS={viewer_pass}
+
 # Bootstrap (vulnboxes curl this URL to enroll)
 IRIS_BOOTSTRAP_API_BASE=http://{api_host}:5000
 IRIS_BOOTSTRAP_KEY_PATH=/run/iris-keys/id_ed25519
@@ -1099,6 +1103,29 @@ def cmd_init_analysis(repo_root: Path, env_path: Path) -> int:
             break
         err("Mismatch, try again.")
 
+    # 2b. Optional viewer-side basic auth on the whole api. The browser
+    # prompts on first /api/* call. Empty defaults to "no auth", same
+    # as iris's historical behaviour.
+    print()
+    print(dim("  Optional viewer auth on the whole api (browser prompts once)."))
+    print(dim("  Empty user = open api (default). Use this on shared networks."))
+    viewer_user = ask(
+        "Viewer auth user (empty = no auth):",
+        default=existing.get("IRIS_AUTH_USER", ""),
+        allow_empty=True,
+    )
+    viewer_pass = ""
+    if viewer_user:
+        while True:
+            viewer_pass = getpass.getpass("  Viewer password: ").strip()
+            if not viewer_pass:
+                viewer_pass = "iris-" + secrets.token_urlsafe(12)
+                info(f"Generated: {viewer_pass}")
+                break
+            if getpass.getpass("  Confirm: ").strip() == viewer_pass:
+                break
+            err("Mismatch, try again.")
+
     # 3. Retention horizons - one round of questions with sane defaults.
     pcap_hours = ask(
         "Pcap retention (hours; 0 = keep forever):",
@@ -1144,6 +1171,8 @@ def cmd_init_analysis(repo_root: Path, env_path: Path) -> int:
         traffic_dir=str(tdir),
         api_host=api_host,
         admin_pass=admin_pass,
+        viewer_user=viewer_user,
+        viewer_pass=viewer_pass,
         pcap_hours=pcap_hours if pcap_hours != "0" else "",
         pcap_gb=pcap_gb if pcap_gb != "0" else "",
         db_hours=db_hours if db_hours != "0" else "",

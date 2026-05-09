@@ -107,6 +107,11 @@ services:
       IRIS_SURICATA_SOCKET: /run/suricata/suricata-command.socket
       IRIS_ADMIN_USER: ${IRIS_ADMIN_USER:-}
       IRIS_ADMIN_PASS: ${IRIS_ADMIN_PASS:-}
+      # Optional viewer-side HTTP basic auth on the whole api. When both
+      # set, the browser prompts once at first /api/* call. Leave empty
+      # to keep the api open (historical default).
+      IRIS_AUTH_USER: ${IRIS_AUTH_USER:-}
+      IRIS_AUTH_PASS: ${IRIS_AUTH_PASS:-}
       # /admin/bootstrap embeds these so a curl-piped install on a fresh
       # vulnbox knows how to ship back to us. Set on the analysis box only.
       IRIS_BOOTSTRAP_API_BASE: ${IRIS_BOOTSTRAP_API_BASE:-}
