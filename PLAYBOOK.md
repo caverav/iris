@@ -21,8 +21,8 @@ git clone https://github.com/caverav/iris.git ~/iris && cd ~/iris
 ./iris-setup --init-analysis                         # 4 questions, ~30 s
 docker compose up -d --build                         # one-time build, ~3 min
 
-export IRIS_VULNBOX_PASSWORD='<org-root-password>'   # cache for re-use
-./iris-setup --enroll-vulnbox 10.60.6.1              # × N vulnboxes
+export IRIS_VULNBOX_PASSWORD='<org-root-password>'   # or IRIS_VULNBOX_SSH_KEY=~/.ssh/id_ed25519
+./iris-setup --enroll-vulnbox 10.60.6.1              # x N vulnboxes
 ./iris-setup --discover-services                     # confirm + apply
 ```
 
@@ -121,14 +121,21 @@ Then browse `http://<your-WG-IP>:3000` for the UI.
 Once per new VM:
 
 ```sh
-export IRIS_VULNBOX_PASSWORD='<the-org-root-password>'   # one time per shell
+# Pick ONE auth mode and export it once per shell:
+export IRIS_VULNBOX_PASSWORD='<the-org-root-password>'      # password auth
+# - or -
+export IRIS_VULNBOX_SSH_KEY=~/.ssh/id_ed25519               # key auth
+#export IRIS_VULNBOX_SSH_KEY_PASSPHRASE='...'               # if key has one
+
 ./iris-setup --enroll-vulnbox 10.60.6.1
 ```
 
 What the subcommand does, behind the curtain:
 
-1. SSHes into `root@10.60.6.1` using the password (via `setsid` +
-   `SSH_ASKPASS`; the password never touches a tty or argv).
+1. SSHes into `root@10.60.6.1`. If `IRIS_VULNBOX_SSH_KEY` is set we use
+   key auth (`-i <key>`, `BatchMode=yes` when no passphrase). Otherwise
+   the password is fed via `setsid` + `SSH_ASKPASS`, so it never
+   touches a tty or argv.
 2. Runs `curl -fsSL -u admin:<pass> http://<analysis-WG>:5000/admin/bootstrap | bash`
    on the remote. The bootstrap script:
    - Clones iris into `/opt/iris`.
@@ -336,6 +343,7 @@ If all six pass, you're ready.
 | Knob | Where | Effect |
 |---|---|---|
 | `IRIS_VULNBOX_PASSWORD=...` | shell env before `--enroll-vulnbox` | Skips the password prompt across N invocations. |
+| `IRIS_VULNBOX_SSH_KEY=<path>` | shell env before `--enroll-vulnbox` | Use SSH key auth instead of a password. Optional `IRIS_VULNBOX_SSH_KEY_PASSPHRASE` for protected keys. |
 | `NFQUEUE_IFACE=game` | shell env before `--enroll-vulnbox` | Pins NFQUEUE to the gamenet iface on that vulnbox; no host-side noise. |
 | `NFQUEUE_SKIP_PORTS` | bootstrap-set in vulnbox `.env` | Default `22,53,123,1900,5353` (SSH + noise). Edit per-vulnbox if you have unusual exposed ports. |
 | `IRIS_PCAP_RETENTION_HOURS` / `IRIS_PCAP_MAX_GB` / `IRIS_DB_RETENTION_HOURS` | analysis `.env` | Janitor knobs. 0 = disabled. |

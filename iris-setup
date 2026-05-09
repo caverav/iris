@@ -1204,18 +1204,70 @@ def cmd_init_analysis(repo_root: Path, env_path: Path) -> int:
 
 def _ssh_with_password(host: str, user: str, password: str, command: str,
                        timeout: int = 300,
-                       input_data: bytes | None = None) -> "subprocess.CompletedProcess":
-    """Run a remote command over SSH, supplying the password via SSH_ASKPASS.
+                       input_data: bytes | None = None,
+                       key_path: str | None = None) -> "subprocess.CompletedProcess":
+    """Run a remote command over SSH.
 
-    Uses the standard setsid + SSH_ASKPASS trick so we never hand the
-    password to a tty. The askpass shim lives in a 0700 tempdir and is
-    deleted on return regardless of outcome.
+    Auth method:
+      * key_path set, password empty: pure key auth (BatchMode=yes).
+      * key_path set, password non-empty: key with passphrase, supplied
+        via SSH_ASKPASS.
+      * key_path None, password set: password auth via SSH_ASKPASS.
+      * Neither: BatchMode (will fail unless ssh-agent or a default key
+        works).
 
-    If `input_data` is given, it is streamed to the remote stdin (so e.g.
-    `command="bash -s"` runs a script we already have on this host - no
-    vulnbox -> analysis-box reachability required).
+    The SSH_ASKPASS shim is the same in all cases - sshd doesn't care
+    whether the secret is a password or a key passphrase, it just
+    prompts and the askpass program writes it to stdin.
+
+    If `input_data` is given, it is streamed to the remote stdin (so
+    e.g. `command="bash -s"` runs a script we already have on this
+    host - no vulnbox -> analysis-box reachability required).
     """
     import subprocess, tempfile, shlex
+
+    need_secret = bool(password)
+
+    ssh_opts = [
+        "-o", "StrictHostKeyChecking=accept-new",
+        "-o", "ConnectTimeout=10",
+        "-o", "NumberOfPasswordPrompts=1",
+    ]
+    if key_path:
+        ssh_opts += ["-i", key_path]
+        if not need_secret:
+            # Pure key auth: no askpass, no interactive prompts.
+            ssh_opts += [
+                "-o", "BatchMode=yes",
+                "-o", "PreferredAuthentications=publickey",
+            ]
+    elif need_secret and input_data is not None:
+        # Password auth with stdin streaming: nudge ssh away from any
+        # default key it might find in ~/.ssh.
+        ssh_opts += [
+            "-o", "PreferredAuthentications=password,keyboard-interactive,publickey",
+        ]
+
+    # When piping stdin we can't use setsid -w, since setsid disconnects
+    # the controlling terminal AND the stdin we're trying to write to.
+    # Instead pass `-T` (no pty) so ssh forwards stdin to the remote.
+    if input_data is not None:
+        wrap = ["ssh", "-T"]
+    elif need_secret:
+        wrap = ["setsid", "-w", "ssh"]
+    else:
+        wrap = ["ssh"]
+
+    argv = wrap + ssh_opts + [f"{user}@{host}", command]
+
+    if not need_secret:
+        return subprocess.run(
+            argv,
+            input=input_data,
+            capture_output=True,
+            timeout=timeout,
+        )
+
     tmp = Path(tempfile.mkdtemp(prefix="iris-askpass-"))
     askpass = tmp / "askpass.sh"
     try:
@@ -1225,28 +1277,6 @@ def _ssh_with_password(host: str, user: str, password: str, command: str,
         env["SSH_ASKPASS"] = str(askpass)
         env["SSH_ASKPASS_REQUIRE"] = "force"
         env.setdefault("DISPLAY", ":0")
-        # When piping stdin we can't use setsid -w, since setsid disconnects
-        # the controlling terminal AND the stdin we're trying to write to.
-        # Instead pass `-T` (no pty) so ssh forwards stdin to the remote.
-        if input_data is not None:
-            argv = [
-                "ssh", "-T",
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "ConnectTimeout=10",
-                "-o", "NumberOfPasswordPrompts=1",
-                "-o", "PreferredAuthentications=password,keyboard-interactive,publickey",
-                f"{user}@{host}",
-                command,
-            ]
-        else:
-            argv = [
-                "setsid", "-w", "ssh",
-                "-o", "StrictHostKeyChecking=accept-new",
-                "-o", "ConnectTimeout=10",
-                "-o", "NumberOfPasswordPrompts=1",
-                f"{user}@{host}",
-                command,
-            ]
         return subprocess.run(
             argv,
             env=env,
@@ -1308,17 +1338,25 @@ def _append_vulnbox(env_path: Path, host: str, ip: str) -> None:
 
 
 def cmd_enroll_vulnbox(repo_root: Path, env_path: Path, ip: str) -> int:
-    """SSH-with-password into a vulnbox, run the bootstrap curl, register it.
+    """SSH into a vulnbox, run the bootstrap script, register it.
+
+    Two auth modes (mutually exclusive):
+      * Password: env IRIS_VULNBOX_PASSWORD, or prompted.
+      * SSH key:  env IRIS_VULNBOX_SSH_KEY (path), with optional
+        IRIS_VULNBOX_SSH_KEY_PASSPHRASE (or prompted if the key is
+        passphrase-protected).
+
+    If IRIS_VULNBOX_SSH_KEY is set we use key auth and skip the
+    password prompt entirely. Otherwise we fall back to password.
 
     Steps:
       1. Read API URL + admin creds from .env on this host.
-      2. Get the vulnbox root password (env IRIS_VULNBOX_PASSWORD or prompt).
-      3. SSH as root using setsid+SSH_ASKPASS.
-      4. Run the bootstrap one-liner remotely.
-      5. Read back the hostname (now via key auth - bootstrap installed our
-         pubkey).
-      6. Append host=ip to VULNBOX_LIST in .env.
-      7. Restart the fetcher so it picks up the new entry.
+      2. Get the vulnbox auth credential (key or password).
+      3. SSH as root and stream the bootstrap script over stdin.
+      4. Read back the hostname via the bootstrap key auth that the
+         remote bootstrap script just installed.
+      5. Append host=ip to VULNBOX_LIST in .env.
+      6. Restart the fetcher so it picks up the new entry.
     """
     import subprocess, getpass
 
@@ -1342,17 +1380,36 @@ def cmd_enroll_vulnbox(repo_root: Path, env_path: Path, ip: str) -> int:
         return 2
 
     user = env.get("VULNBOX_SSH_USER", "root")
-    password = os.environ.get("IRIS_VULNBOX_PASSWORD", "").strip()
-    if not password:
-        try:
-            password = getpass.getpass(f"  {user}@{ip} password: ")
-        except (KeyboardInterrupt, EOFError):
-            print()
-            warn("Aborted.")
-            return 130
-    if not password:
-        err("Empty password.")
-        return 2
+    ssh_key_path = os.environ.get("IRIS_VULNBOX_SSH_KEY", "").strip()
+    password = ""
+    if ssh_key_path:
+        if not Path(ssh_key_path).is_file():
+            err(f"IRIS_VULNBOX_SSH_KEY={ssh_key_path}: not a file.")
+            return 2
+        info(f"Using SSH key auth: {ssh_key_path}")
+        # Passphrase is optional; only feed one if the user gave us one.
+        # If the key has a passphrase and we don't supply it, ssh will
+        # fail with a clear error rather than hanging (BatchMode is on).
+        password = os.environ.get("IRIS_VULNBOX_SSH_KEY_PASSPHRASE", "")
+        if not password and os.environ.get("IRIS_VULNBOX_SSH_KEY_PROMPT_PASSPHRASE"):
+            try:
+                password = getpass.getpass(f"  passphrase for {ssh_key_path} (empty if none): ")
+            except (KeyboardInterrupt, EOFError):
+                print()
+                warn("Aborted.")
+                return 130
+    else:
+        password = os.environ.get("IRIS_VULNBOX_PASSWORD", "").strip()
+        if not password:
+            try:
+                password = getpass.getpass(f"  {user}@{ip} password: ")
+            except (KeyboardInterrupt, EOFError):
+                print()
+                warn("Aborted.")
+                return 130
+        if not password:
+            err("Empty password.")
+            return 2
 
     # 3. Fetch /admin/bootstrap LOCALLY (analysis box -> its own api) and
     #    stream it over SSH stdin to the vulnbox. Most CTF gamenets are
@@ -1386,6 +1443,7 @@ def cmd_enroll_vulnbox(repo_root: Path, env_path: Path, ip: str) -> int:
             ip, user, password, "bash -s",
             input_data=script_bytes,
             timeout=900,
+            key_path=ssh_key_path or None,
         )
     except FileNotFoundError as e:
         err(f"missing tool: {e} (need ssh + setsid)")
@@ -1436,8 +1494,9 @@ def cmd_enroll_vulnbox(repo_root: Path, env_path: Path, ip: str) -> int:
 
     print()
     print(green(f"Enrolled {host_tag} ({ip}). The fetcher will start pulling within ~30s."))
-    print(dim("Set IRIS_VULNBOX_PASSWORD=... in your shell before enrolling more"))
-    print(dim("vulnboxes with the same root password to skip the prompt."))
+    print(dim("Reuse the same auth across enrollments by exporting one of:"))
+    print(dim("  IRIS_VULNBOX_SSH_KEY=~/.ssh/id_ed25519   (key auth)"))
+    print(dim("  IRIS_VULNBOX_PASSWORD=...                (password auth)"))
     return 0
 
 
@@ -1666,9 +1725,12 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument(
         "--enroll-vulnbox", metavar="IP",
         help=(
-            "SSH into a new vulnbox using its root password (prompted, or "
-            "from $IRIS_VULNBOX_PASSWORD), pipe the bootstrap curl, and "
-            "register the host in VULNBOX_LIST. Restarts the fetcher."
+            "SSH into a new vulnbox, stream the bootstrap script, and "
+            "register the host in VULNBOX_LIST. Auth: set "
+            "$IRIS_VULNBOX_SSH_KEY to a private key path for key auth "
+            "(optional $IRIS_VULNBOX_SSH_KEY_PASSPHRASE) - otherwise "
+            "falls back to a root password ($IRIS_VULNBOX_PASSWORD or "
+            "prompted). Restarts the fetcher."
         ),
     )
     mode.add_argument(
