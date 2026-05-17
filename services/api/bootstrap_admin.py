@@ -36,7 +36,7 @@ set -euo pipefail
 
 REPO="$${IRIS_REPO:-$IRIS_REPO_DEFAULT}"
 DEST="$${IRIS_DEST:-/opt/iris}"
-NFQUEUE_CHAINS_OVERRIDE="$${NFQUEUE_CHAINS:-FORWARD}"
+NFQUEUE_CHAINS_OVERRIDE="$${NFQUEUE_CHAINS:-INPUT,FORWARD,DOCKER-USER}"
 NFQUEUE_IFACE_OVERRIDE="$${NFQUEUE_IFACE:-}"
 HOSTNAME_TAG="$$(hostname | tr -c '[:alnum:]._-' '_')"
 
@@ -75,6 +75,10 @@ TRAFFIC_DIR_DOCKER=/traffic
 # NFQUEUE / Suricata-IPS. NFQUEUE_IFACE / NFQUEUE_CHAINS may be overridden
 # by setting them in the curl-bash environment, e.g.:
 #   curl ... | NFQUEUE_IFACE=game NFQUEUE_CHAINS=FORWARD sudo -E bash
+# Default (INPUT,FORWARD,DOCKER-USER) catches:
+#   - INPUT       : services listening on the host (native daemons on 0.0.0.0)
+#   - FORWARD     : the vulnbox is routing to services elsewhere
+#   - DOCKER-USER : services in docker containers (most ICC-style setups)
 NFQUEUE_NUM=0
 NFQUEUE_IFACE=$${NFQUEUE_IFACE_OVERRIDE}
 NFQUEUE_CHAINS=$${NFQUEUE_CHAINS_OVERRIDE}
