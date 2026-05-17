@@ -261,6 +261,17 @@ def _quote_if_needed(v: str) -> str:
     return v
 
 
+def _bind_path(p: str) -> str:
+    # Docker Compose treats a bare relative name (e.g. `traffic`) in a `volumes:`
+    # short-form mount as a *named volume* reference, not a host bind mount.
+    # Coerce to `./traffic` so it's unambiguously a bind path.
+    if not p:
+        return p
+    if p.startswith(("/", "./", "../", "~")):
+        return p
+    return "./" + p
+
+
 def render_env(template: str, values: dict[str, str], extra_existing: dict[str, str]) -> str:
     """Render an .env by substituting known keys into the .env.example template.
 
@@ -498,11 +509,11 @@ def screen_traffic(state: WizardState) -> None:
     default_traffic_dir = (
         "./services/test_pcap" if include_demos == "yes" else "./traffic"
     )
-    state.env["TRAFFIC_DIR_HOST"] = ask(
+    state.env["TRAFFIC_DIR_HOST"] = _bind_path(ask(
         "Host path to the pcap directory:",
         default=state.env.get("TRAFFIC_DIR_HOST", default_traffic_dir),
         required=True,
-    )
+    ))
     state.env["TRAFFIC_DIR_DOCKER"] = ask(
         "In-container path:",
         default=state.env.get("TRAFFIC_DIR_DOCKER", "/traffic"),
@@ -700,11 +711,11 @@ def screen_services(state: WizardState, existing_services: list[Service], existi
 
 def screen_suricata(state: WizardState) -> None:
     section("Suricata")
-    state.env["SURICATA_DIR_HOST"] = ask(
+    state.env["SURICATA_DIR_HOST"] = _bind_path(ask(
         "Directory to store Suricata rules/logs/etc (seeded on first run):",
         default=state.env.get("SURICATA_DIR_HOST", "./suricata-runtime"),
         required=True,
-    )
+    ))
     state.env["SURICATA_UPDATE_ENABLE"] = "1" if ask_bool(
         "Pull ET-Open rules with `suricata-update` at container start?",
         default=state.env.get("SURICATA_UPDATE_ENABLE", "0") == "1",
@@ -1168,7 +1179,7 @@ def cmd_init_analysis(repo_root: Path, env_path: Path) -> int:
 
     # 7. Render .env. Back up any existing one.
     body = _ANALYSIS_ENV_TEMPLATE.format(
-        traffic_dir=str(tdir),
+        traffic_dir=_bind_path(str(tdir)),
         api_host=api_host,
         admin_pass=admin_pass,
         viewer_user=viewer_user,
