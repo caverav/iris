@@ -41,8 +41,13 @@ SSH_OPTS="${SSH_OPTS:--o BatchMode=yes -o StrictHostKeyChecking=accept-new -o Co
 mkdir -p "$TRAFFIC_DIR" "$EVE_DIR"
 ssh_cmd="ssh -i $SSH_KEY $SSH_OPTS"
 
-# Stage area for hostname-prefix renaming. Living on /tmp so it's tmpfs.
-STAGE_DIR=/tmp/iris-fetch-stage
+# Stage area for hostname-prefix renaming. MUST live on the same filesystem
+# as TRAFFIC_DIR so the `ln` below makes a real hardlink: rsync's
+# --append-verify grows the staged file in place, and a real hardlink lets
+# the traffic-dir entry reflect that growth without another copy. A
+# cross-fs stage (e.g. /tmp) silently fell back to `cp`, which then never
+# refreshed once the first iteration had run.
+STAGE_DIR="${TRAFFIC_DIR}/.stage"
 mkdir -p "$STAGE_DIR"
 
 fetch_one() {
