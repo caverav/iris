@@ -17,7 +17,13 @@ INSERT INTO tag (name) VALUES
 	('flagid-out'),
 	('blocked'),
 	('suricata'),
-	('starred');
+	('starred'),
+	-- Classifier output. auto:* are written by the classifier service,
+	-- manual:* are operator overrides set via POST /flow/<id>/tag/<name>.
+	('auto:checker'),
+	('auto:attacker'),
+	('manual:checker'),
+	('manual:attacker');
 
 -- Flag ids
 CREATE TABLE flag_id (
@@ -62,8 +68,17 @@ CREATE TABLE flow (
 	packets_count int NOT NULL DEFAULT 0,
 	packets_size int NOT NULL DEFAULT 0,
 	flags_in int NOT NULL DEFAULT 0,
-	flags_out int NOT NULL DEFAULT 0
+	flags_out int NOT NULL DEFAULT 0,
+	-- TCP SYN packet fingerprint populated by syn_tagger.py from pcap.
+	-- {ttl, df, win, mss, wscale, sack, opts}.
+	-- Useful on NAT'd gamenets where source IP is anonymized but the
+	-- TCP options pattern survives and lets us distinguish callers.
+	syn_meta jsonb
 );
+
+-- Filterable from the iris API via /query { "syn_ttl": ..., "syn_opts": ... }
+CREATE INDEX ON flow ((syn_meta->>'ttl'));
+CREATE INDEX ON flow ((syn_meta->>'opts'));
 
 -- Suricata id lookup, see Database::SuricataIdFindFlow
 CREATE INDEX ON flow (id, port_src, port_dst, ip_src, ip_dst);

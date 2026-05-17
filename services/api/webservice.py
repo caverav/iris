@@ -151,6 +151,8 @@ def query():
             tags_include=[str(elem) for elem in query.get("tags_include", [])],
             tags_exclude=[str(elem) for elem in query.get("tags_exclude", [])],
             tag_intersection_and=query.get("tag_intersection_mode", "").lower() == "and",
+            syn_ttl=query.get("syn_ttl") if query.get("syn_ttl") else None,
+            syn_opts=query.get("syn_opts") if query.get("syn_opts") else None,
             # Clients may ask for a larger window of flows than the default
             # 1000. Clamp to a ceiling so a rogue request can't OOM the API
             # or trip the GiST trgm index's quadratic worst case.
@@ -216,6 +218,21 @@ def setStar():
     with db.connection() as c:
         c.flow_tag(flow_id, "starred", apply)
     return "ok!"
+
+
+@application.route("/flow/<id>/tag/<tag>", methods=["POST", "DELETE"])
+def flow_tag_manual(id, tag):
+    """Apply or remove a tag on a flow.
+    POST   -> add
+    DELETE -> remove
+    Tags starting with "manual:" are honored as overrides by the classifier."""
+    apply = request.method == "POST"
+    with db.connection() as c:
+        if apply:
+            c.execute("INSERT INTO tag (name, sort) VALUES (%(tag)s, 90) ON CONFLICT (name) DO NOTHING", {"tag": tag})
+        c.flow_tag(uuid.UUID(id), tag, apply)
+    return "ok!"
+
 
 
 @application.route("/services")

@@ -374,6 +374,11 @@ function FlowListEntry({ flow, isActive, onHeartClick }: FlowListEntryProps) {
         <span className="bytes">
           {flow.num_packets > 0 ? `${flow.num_packets} pkt` : ""}
         </span>
+        {flow.syn_meta && (
+          <span className="row-syn" title={`SYN: ttl=${flow.syn_meta.ttl} win=${flow.syn_meta.win} mss=${flow.syn_meta.mss} ws=${flow.syn_meta.wscale} opts=${flow.syn_meta.opts}`}>
+            t{flow.syn_meta.ttl}/{flow.syn_meta.opts}
+          </span>
+        )}
       </div>
     </div>
   );

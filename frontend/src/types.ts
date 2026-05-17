@@ -1,3 +1,13 @@
+export interface SynMeta {
+  ttl: number;
+  df?: boolean;
+  win: number;
+  mss?: number;
+  wscale?: number;
+  sack?: boolean;
+  opts: string;
+}
+
 export interface Flow {
   id: Id;
   src_port: number;
@@ -16,6 +26,7 @@ export interface Flow {
   flagids: string[];
   suricata: number[];
   filename: string;
+  syn_meta?: SynMeta;
 }
 
 export interface TickInfo {
@@ -66,6 +77,8 @@ export interface FlowsQuery {
   tags_include?: string[];
   tags_exclude?: string[];
   tag_intersection_mode?: "AND" | "OR";
+  syn_ttl?: number;
+  syn_opts?: string;
   flags?: string[];
   flagids?: string[];
 }

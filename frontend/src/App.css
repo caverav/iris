@@ -1222,3 +1222,33 @@
 }
 .settings-creds input:focus { outline: 1px solid var(--acc); border-color: var(--acc); }
 .settings-err { color: oklch(0.65 0.22 25); font-size: 12px; }
+
+.syn-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 6px;
+  font-size: 0.8em;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+}
+.syn-chip {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: oklch(0.30 0.02 280 / 0.8);
+  color: oklch(0.92 0.02 280);
+  border: 1px solid oklch(0.40 0.02 280);
+}
+.syn-chip b {
+  font-weight: 600;
+  margin-right: 4px;
+  color: oklch(0.85 0.04 230);
+  font-family: inherit;
+}
+.row-syn {
+  font-size: 0.75em;
+  font-family: ui-monospace, "JetBrains Mono", monospace;
+  color: oklch(0.75 0.04 230);
+  padding: 0 4px;
+  border-radius: 3px;
+  background: oklch(0.30 0.02 280 / 0.5);
+}

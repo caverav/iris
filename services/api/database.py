@@ -32,6 +32,8 @@ class FlowQuery:
     time_to: datetime | None = None
     tags_include: list[str] = field(default_factory=list)
     tags_exclude: list[str] = field(default_factory=list)
+    syn_ttl: int | None = None
+    syn_opts: str | None = None
     tag_intersection_and: bool = False
     limit: int = 1000
 
@@ -58,6 +60,7 @@ class Flow:
     tags: list[str]
     flags: list[str]
     flagids: list[str]
+    syn_meta: dict | None = None
     rank: int = 0
 
 
@@ -163,6 +166,13 @@ class Connection(psycopg.Connection):
             parameters["time_to"] = query.time_to
             conditions.append(sql.SQL("f.id < fid_pack_high(%(time_to)s)"))
             pre_conditions.append(sql.SQL("flow_id < fid_pack_high(%(time_to)s)"))
+
+        if query.syn_ttl is not None:
+            parameters["syn_ttl"] = str(query.syn_ttl)
+            conditions.append(sql.SQL("f.syn_meta->>'ttl' = %(syn_ttl)s"))
+        if query.syn_opts:
+            parameters["syn_opts"] = query.syn_opts
+            conditions.append(sql.SQL("f.syn_meta->>'opts' = %(syn_opts)s"))
 
         if query.tags_include:
             parameters["tags_include"] = query.tags_include

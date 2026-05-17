@@ -18,6 +18,10 @@ const variantMap: Record<string, Variant> = {
   suricata: "info",
   fishy: "info",
   starred: "acc",
+  "auto:checker": "ok",
+  "manual:checker": "ok",
+  "auto:attacker": "danger",
+  "manual:attacker": "danger",
 };
 
 function resolveVariant(tag: string): Variant {

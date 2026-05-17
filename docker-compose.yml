@@ -342,6 +342,24 @@ services:
       IRIS_PCAP_MAX_GB: ${IRIS_PCAP_MAX_GB:-}
       IRIS_DB_RETENTION_HOURS: ${IRIS_DB_RETENTION_HOURS:-}
 
+  # --- Classifier (auto-tags flows as auto:checker / auto:attacker) -----------
+  classifier:
+    profiles: ["iris"]
+    build:
+      context: services/classifier
+    image: iris-classifier:latest
+    restart: unless-stopped
+    depends_on:
+      - timescale
+    environment:
+      TIMESCALE: ${TIMESCALE}
+      TICK_LENGTH: ${TICK_LENGTH}
+      TICK_START: ${TICK_START}
+      FLAG_REGEX: ${FLAG_REGEX}
+    networks:
+      - internal
+
+
 volumes:
   timescale-data:
   suricata-control:

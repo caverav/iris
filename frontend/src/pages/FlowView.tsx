@@ -457,6 +457,15 @@ function DetailHead({
           {formatIP(flow.dst_ip)}:{flow.dst_port}
         </span>
       </div>
+      {flow.syn_meta && (
+        <div className="syn-meta" title="TCP SYN packet fingerprint (caller OS hints)">
+          <span className="syn-chip"><b>ttl</b> {flow.syn_meta.ttl}</span>
+          <span className="syn-chip"><b>win</b> {flow.syn_meta.win}</span>
+          {flow.syn_meta.mss != null && <span className="syn-chip"><b>mss</b> {flow.syn_meta.mss}</span>}
+          {flow.syn_meta.wscale != null && <span className="syn-chip"><b>ws</b> {flow.syn_meta.wscale}</span>}
+          <span className="syn-chip"><b>opts</b> {flow.syn_meta.opts}</span>
+        </div>
+      )}
       <div className="spacer" />
 
       {flow.flow && flow.flow.length > 1 && (

@@ -179,11 +179,14 @@ box runs the full Iris stack and consumes the shipped files. Good for keeping
 the vulnbox light under attack.
 
 > **For ICC-style fleets (one analysis box + N vulnboxes, mid-game additions
-> on a one-way WireGuard mesh), see [PLAYBOOK.md](./PLAYBOOK.md).** Five
-> wizard subcommands cover the whole flow:
+> on a one-way WireGuard mesh), see [PLAYBOOK.md](./PLAYBOOK.md) (TL;DR) or
+> the full guide at [docs/ICC-SETUP.md](./docs/ICC-SETUP.md).** Five wizard
+> subcommands cover the whole flow:
 >   `./iris-setup --init-analysis` (analysis box),
 >   `--enroll-vulnbox <ip>` (per VM),
 >   `--discover-services` (populate the iris UI service list).
+> ICC-SETUP also documents the cadence classifier, the TCP SYN fingerprint
+> attribute, manual tag overrides, and hot-standby failover.
 > The hand-edited push-mode setup below still works for two-host LAN
 > deployments where vulnbox -> analysis traffic is allowed.
 
