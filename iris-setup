@@ -740,7 +740,11 @@ def screen_nfqueue(state: WizardState) -> None:
         required=True,
     )
     state.env["NFQUEUE_IFACE"] = ask(
-        "Interface to hook (empty = all):",
+        "Interface to hook (e.g. 'game' or 'wg0' for the gamenet WG iface;\n"
+        "  empty = let iptables-init auto-detect the wireguard iface at\n"
+        "  startup. NEVER manually set this to a non-WG iface on a vulnbox\n"
+        "  - we'll capture the encrypted WG transport and rsync gigabytes\n"
+        "  of our own traffic back to the analysis box):",
         default=state.env.get("NFQUEUE_IFACE", ""),
         allow_empty=True,
     )

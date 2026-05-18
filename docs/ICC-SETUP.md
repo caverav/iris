@@ -353,6 +353,79 @@ docker exec iris-timescale-1 psql -U iris -d iris -c "
 
 ---
 
+## 9b. Pitfall - leaving `NFQUEUE_IFACE` empty (a.k.a. wiretapping the wiretap)
+
+**Read this before every game.**
+
+The vulnbox runs Suricata in inline NFQUEUE mode. `iptables-init.sh` reads
+`NFQUEUE_IFACE` from `.env` and uses it as `-i <iface>` (or `-o <iface>`
+for egress chains) on every NFQUEUE jump rule. If `NFQUEUE_IFACE` is
+**empty**, those `-i` / `-o` clauses are omitted and every packet on
+**every interface** ends up in the queue. That includes the underlying
+encrypted WireGuard transport on the box's primary NIC.
+
+Effects we observed in the wild (ICC test, 2026-05-18):
+
+- Suricata's pcap-log on one vulnbox wrote 63 GB across 638 100-MB files
+  in 40 minutes.
+- 97% of those bytes were the vulnbox's own outbound UDP/51820 (WG) to
+  the gameserver, i.e. the **encrypted tunnel transport itself**.
+- The analysis-side `fetcher` rsync'd that 63 GB back over the same
+  gamenet, doubling the perceived bandwidth.
+- Per-team gamenet traffic peaked above 1 Gbps and earned us a
+  noise-violation ticket from the org.
+
+Defenses now shipped in this repo:
+
+1. `iptables-init.sh` refuses to run with an empty `NFQUEUE_IFACE` unless
+   it can auto-detect a `wireguard` iface via `ip -d link`. If neither, it
+   exits non-zero with a clear message, and Suricata-IPS depends on it,
+   so the whole stack fails to start instead of capturing the world.
+2. `NFQUEUE_SKIP_PORTS` now includes `51820` by default. Even if the
+   iface filter is misconfigured, WG's default port bypasses NFQUEUE.
+
+Operator checklist before the game starts:
+
+```sh
+# on every vulnbox (after `--enroll-vulnbox` runs):
+ssh root@<vulnbox> cat /opt/iris/.env | grep NFQUEUE_IFACE
+# must not be empty, must match the gamenet WG interface name (`game`,
+# `wg0`, etc.)
+
+# verify the rule scope:
+ssh root@<vulnbox> iptables -L INPUT  -n -v | grep NFQUEUE
+ssh root@<vulnbox> iptables -L OUTPUT -n -v | grep NFQUEUE
+# every NFQUEUE rule should show `<iface>` in the `in` or `out` column,
+# never a bare `*`.
+
+# check pcap protocol mix mid-game:
+docker run --rm -v "$IRIS_REPO/services/test_pcap:/traffic:ro" \
+  python:3.11-slim sh -c 'pip install -q scapy && python3 -c "
+from collections import Counter
+from scapy.utils import PcapReader
+from scapy.layers.inet import UDP
+c = Counter()
+for p in PcapReader(\"/traffic/<latest>.pcap\"):
+    if p.haslayer(UDP):
+        c[p[UDP].dport] += 1
+print(c.most_common(5))"'
+# if port 51820 is in the top-5 you are bleeding gamenet bandwidth.
+```
+
+If a vulnbox is already bleeding mid-game, the safe hot-fix is:
+
+```sh
+ssh root@<vulnbox> "
+  cd /opt/iris &&
+  sed -i 's/^NFQUEUE_IFACE=.*/NFQUEUE_IFACE=game/' .env &&
+  docker compose up -d --force-recreate iptables-init suricata-ips
+"
+```
+
+(replace `game` with the actual gamenet iface name).
+
+---
+
 ## 10. Troubleshooting
 
 - **fetcher container restart-looping** before any vulnbox is enrolled:

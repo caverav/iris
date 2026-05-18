@@ -33,7 +33,32 @@ QUEUE_NUM="${NFQUEUE_NUM:-0}"
 IFACE="${NFQUEUE_IFACE:-}"
 CHAINS="${NFQUEUE_CHAINS:-INPUT,FORWARD,DOCKER-USER}"
 IPV6="${NFQUEUE_IPV6:-1}"
-SKIP_PORTS="${NFQUEUE_SKIP_PORTS-22,53,123,1900,5353}"
+# 22 (ssh) is the lifeline; 53/123/1900/5353 are pure noise; 51820 is
+# WireGuard's default port -- skipping it is a safety net so a misconfigured
+# NFQUEUE_IFACE (empty / wrong iface) can never end up capturing the
+# encrypted WG transport. Past incident: a vulnbox with NFQUEUE_IFACE=""
+# captured 60+ GB of its own outbound WG traffic in 40 minutes and rsync'd
+# all of it back to the analysis box over the same gamenet, peaking at
+# 1+ Gbps and earning the team a noise-violation ticket.
+SKIP_PORTS="${NFQUEUE_SKIP_PORTS-22,53,123,1900,5353,51820}"
+
+# Auto-detect WG iface if NFQUEUE_IFACE is empty: pick the first interface
+# of type wireguard. This makes pull-mode vulnbox bootstrap safe-by-default
+# even when the operator forgot to set the iface explicitly.
+if [ -z "$IFACE" ]; then
+  IFACE="$(ip -d -o link show 2>/dev/null \
+    | awk '/wireguard/ { sub(/@.*/, "", $2); sub(/:$/, "", $2); print $2; exit }')"
+  if [ -n "$IFACE" ]; then
+    echo "[iptables-init] NFQUEUE_IFACE was empty; auto-detected wireguard iface: $IFACE"
+  else
+    echo "[iptables-init] FATAL: NFQUEUE_IFACE is empty and no wireguard iface found."
+    echo "[iptables-init] Refusing to install unbounded NFQUEUE rules -- they would"
+    echo "[iptables-init] capture every packet on every interface (encrypted tunnel"
+    echo "[iptables-init] transport included). Set NFQUEUE_IFACE to the gamenet iface"
+    echo "[iptables-init] name (e.g. 'game' or 'wg0') and retry."
+    exit 1
+  fi
+fi
 
 # Egress chains apply iface as -o; ingress chains apply iface as -i.
 # Chains not in this set default to -i (covers FORWARD, INPUT, PREROUTING,

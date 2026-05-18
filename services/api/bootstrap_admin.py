@@ -86,8 +86,10 @@ TRAFFIC_DIR_DOCKER=/traffic
 NFQUEUE_NUM=0
 NFQUEUE_IFACE=$${NFQUEUE_IFACE_OVERRIDE}
 NFQUEUE_CHAINS=$${NFQUEUE_CHAINS_OVERRIDE}
-# 22 (ssh) is the lifeline; 53/123/1900/5353 are pure noise.
-NFQUEUE_SKIP_PORTS=22,53,123,1900,5353
+# 22 (ssh) is the lifeline; 53/123/1900/5353 are pure noise; 51820 is
+# WireGuard's default port -- skipped as a safety net so a misconfigured
+# NFQUEUE_IFACE can never capture the encrypted WG transport.
+NFQUEUE_SKIP_PORTS=22,53,123,1900,5353,51820
 NFQUEUE_IPV6=0
 SURICATA_UPDATE_ENABLE=0
 EMIT_SID_TAGS=1
